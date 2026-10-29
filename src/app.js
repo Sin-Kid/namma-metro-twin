@@ -236,6 +236,8 @@ function addLayers(){
   if(!map.getLayer("route-lines"))map.addLayer({id:"route-lines",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
     paint:{"line-color":["get","color"],"line-width":["interpolate",["linear"],["zoom"],10,4,14,6.5],"line-opacity":fade,
       "line-dasharray":["case",["==",["get","open"],1],["literal",[1,0]],["literal",[2,1.5]]]}});
+  /* the metro's three.js layer must come before the building extrusions, or the buildings render flat */
+  if(!map.getLayer("metro-3d"))map.addLayer(metroLayer,undefined);
   if(!map.getSource("streets"))map.addSource("streets",{type:"vector",url:"mapbox://mapbox.mapbox-streets-v8"});
   if(!map.getLayer("color-bldg"))map.addLayer({id:"color-bldg",type:"fill-extrusion",source:"streets","source-layer":"building",slot:"middle",minzoom:13,
     filter:["all",["==",["get","extrude"],"true"],["!=",["get","underground"],"true"]],
@@ -244,7 +246,7 @@ function addLayers(){
         ["match",["%",["to-number",["id"],0],8],0,BLDG[0],1,BLDG[1],2,BLDG[2],3,BLDG[3],4,BLDG[4],5,BLDG[5],6,BLDG[6],BLDG[7]]],
       "fill-extrusion-height":["get","height"],"fill-extrusion-base":["get","min_height"],
       "fill-extrusion-opacity":["interpolate",["linear"],["zoom"],13,0,13.6,.95],"fill-extrusion-vertical-gradient":true,"fill-extrusion-ambient-occlusion-intensity":.35}});
-  if(!map.getLayer("metro-3d"))map.addLayer(metroLayer,undefined);
+
   if(!map.getLayer("st-dots"))map.addLayer({id:"st-dots",type:"circle",source:"stations",slot:"top",filter:["==",["get","vis"],1],
     paint:{"circle-radius":["interpolate",["linear"],["zoom"],10,["case",["==",["get","ix"],1],5.5,3.4],15,["case",["==",["get","ix"],1],9,6]],
       "circle-color":["case",["==",["get","ix"],1],"#ffffff",["get","color"]],"circle-stroke-color":["case",["==",["get","ix"],1],"#18202b","#ffffff"],"circle-stroke-width":2.2,
