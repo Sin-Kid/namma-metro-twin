@@ -4,7 +4,7 @@ The source OBJ is NOT kept in this repo (the licence doesn't allow redistributin
 Download it from https://www.cgtrader.com/free-3d-models/vehicle/train/shanghai-metro-line6-ac-04-train-alstom-sh-company
 and run:  python3 scripts/build_train.py path/to/3d-model.obj
 
-Output: one driving car and one middle car, pantographs removed (Namma Metro uses third rail),
+Output: one driving car and one middle car, pantographs removed, body kept at full detail (Namma Metro uses third rail),
 scaled to Namma Metro proportions (21.6 m car pitch, ~2.9 m wide, floor ~0.94 m above rail),
 simplified for real-time use. Car length runs along +Z (the driving car's nose at +Z), Y up, rail top at Y=0.
 File layout (little-endian): "NMTR", u32 version, then per car: u32 nVerts, u32 nTris, f32[nVerts*3], u16/u32 indices.
@@ -31,7 +31,8 @@ SEAMS = [-45.4, -22.6, 0.0]                  # driving car [-45.4,-22.6], middle
 SCALE = np.array([21.6 / 22.65, 0.85, 0.88])  # length, height, width
 
 def car(x0, x1, target):
-  keep = (C[:, 0] >= x0) & (C[:, 0] < x1) & (C[:, 1] < 4.75)   # drop pantographs above the roof
+  # drop the pantographs: every face lying wholly above the roof crown (5.04 m in the source)
+  keep = (C[:, 0] >= x0) & (C[:, 0] < x1) & (V[F][:, :, 1].min(1) < 5.06) & (V[F][:, :, 1].max(1) < 5.12)
   f = F[keep]
   used, inv = np.unique(f, return_inverse=True)
   v = V[used]; f = inv.reshape(-1, 3)
@@ -40,9 +41,9 @@ def car(x0, x1, target):
   _, first, remap = np.unique(q, axis=0, return_index=True, return_inverse=True)
   v = v[first]; f = remap.reshape(-1)[f]
   f = f[(f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])]
-  # keep the large body panels exactly; simplify only the small detail parts (bogies, equipment, fittings)
-  T = v[f]; area = np.linalg.norm(np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]), axis=1) / 2
-  big = area > 0.05
+  # keep the whole body shell exactly (simplifying it tore holes in the roof and nose);
+  # simplify only the underframe (bogies, equipment boxes) below the solebar
+  big = v[f][:, :, 1].mean(1) >= 1.12
   small = f[~big]
   ratio = max(0.0, 1.0 - max(1, target - big.sum()) / max(1, len(small)))
   vs, fs = fast_simplification.simplify(v.astype(np.float32), small.astype(np.int32), target_reduction=ratio)
@@ -59,7 +60,7 @@ def car(x0, x1, target):
         f"extent x {out[:,0].min():.2f}..{out[:,0].max():.2f} y {out[:,1].min():.2f}..{out[:,1].max():.2f} z {out[:,2].min():.2f}..{out[:,2].max():.2f}")
   return out.astype(np.float32), f2.astype(np.uint32)
 
-cars = [car(SEAMS[0], SEAMS[1], 15000), car(SEAMS[1], SEAMS[2], 14000)]
+cars = [car(SEAMS[0], SEAMS[1], 18000), car(SEAMS[1], SEAMS[2], 24000)]
 buf = bytearray(b"NMTR" + struct.pack("<I", 1))
 for v, f in cars:
   buf += struct.pack("<II", len(v), len(f))

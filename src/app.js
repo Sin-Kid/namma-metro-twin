@@ -156,7 +156,7 @@ const drops=[];for(let i=0;i<RN;i++)drops.push([rng()*2-1,rng(),rng()*2-1]);
 const MODEL_R=1600;                 // metres from the view centre within which trains use the detailed model
 const trainU={uNight:{value:0}};
 function paintMaterial(isCab){
-  const m=new THREE.MeshStandardMaterial({roughness:.5,metalness:.05,flatShading:true});
+  const m=new THREE.MeshStandardMaterial({roughness:.5,metalness:.05,flatShading:true,side:THREE.DoubleSide});   // the source mesh mixes face windings
   m.onBeforeCompile=sh=>{
     sh.uniforms.uNight=trainU.uNight;sh.uniforms.uCab={value:isCab?1:0};
     sh.vertexShader="varying vec3 vMP;\nvarying vec3 vMN;\n"+sh.vertexShader.replace("#include <begin_vertex>","#include <begin_vertex>\nvMP=position;vMN=normal;");
@@ -166,16 +166,22 @@ function paintMaterial(isCab){
         #if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
           lineC=vColor.rgb;
         #endif
-        vec3 an=abs(normalize(vMN));float y=vMP.y;float glassF=0.;
+        vec3 an=abs(normalize(vMN));float y=vMP.y,ax=abs(vMP.x);float glassF=0.,lampF=0.;
         vec3 paint=vec3(.86,.88,.9);
-        bool side=an.x>.55,front=an.z>.55&&uCab>.5&&vMP.z>9.4;
-        if(y<.95) paint=vec3(.2,.21,.23);
-        else if((side&&y>1.70&&y<2.62)||(front&&y>1.55&&y<3.25)){paint=vec3(.09,.12,.16);glassF=1.;}
+        bool side=an.x>.55,front=uCab>.5&&vMP.z>9.7&&an.x<.6&&an.y<.8;
+        if(front){
+          if(y>2.05&&y<3.2&&ax<1.24&&vMP.z>10.05){paint=vec3(.07,.1,.14);glassF=1.;}
+          else if(y>3.27&&y<3.55&&ax<.62&&an.y<.5){paint=vec3(.12,.08,.02);lampF=1.;}
+          else if(y>1.3&&y<1.62&&ax>.72&&ax<1.18){paint=vec3(.95,.95,.9);lampF=2.;}
+          else if(y>.98&&y<1.95) paint=lineC;
+          else if(y<.98) paint=vec3(.2,.21,.23);
+        }
+        else if(y<.95) paint=vec3(.2,.21,.23);
+        else if(side&&y>1.70&&y<2.62){paint=vec3(.09,.12,.16);glassF=1.;}
         else if(y>1.23&&y<1.57) paint=lineC;
-        else if(front&&y>1.0&&y<1.5) paint=mix(lineC,vec3(.95),.15);
-        else if(y>3.45) paint=vec3(.72,.74,.77);
+        else if(y>3.62) paint=vec3(.72,.74,.77);
         diffuseColor.rgb=paint;`)
-      .replace("#include <emissivemap_fragment>","#include <emissivemap_fragment>\n totalEmissiveRadiance+=vec3(1.,.86,.62)*glassF*uNight*.7;");
+      .replace("#include <emissivemap_fragment>","#include <emissivemap_fragment>\n totalEmissiveRadiance+=vec3(1.,.86,.62)*glassF*uNight*.7+(lampF>1.5?vec3(1.,1.,.92)*(.35+uNight):vec3(1.,.62,.12)*(.5+.5*uNight))*step(.5,lampF);");
   };
   m.customProgramCacheKey=()=>"nm-train-"+(isCab?1:0);
   return m;
