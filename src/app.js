@@ -154,51 +154,98 @@ const drops=[];for(let i=0;i<RN;i++)drops.push([rng()*2-1,rng(),rng()*2-1]);
    Painted in the shader by part, using the car's own coordinates: dark underframe, silver body, Namma Metro line-colour band,
    tinted window band and windscreen, light roof. Used for trains near the view; far trains keep the simple box cars. */
 const MODEL_R=1600;                 // metres from the view centre within which trains use the detailed model
-const trainU={uNight:{value:0}};
+const trainU={uNight:{value:0},uCam:{value:new THREE.Vector3()}};
 function paintMaterial(isCab){
-  const m=new THREE.MeshStandardMaterial({roughness:.5,metalness:.05,flatShading:true,side:THREE.DoubleSide});   // the source mesh mixes face windings
+  // procedural livery: brushed stainless body, doors with seams and windows, tinted side glass between pillars,
+  // line-coloured stripe, and a sky/street reflection (Fresnel) computed from the real camera position
+  const m=new THREE.MeshStandardMaterial({roughness:.55,metalness:0,side:THREE.DoubleSide});   // the source mesh mixes face windings
   m.onBeforeCompile=sh=>{
-    sh.uniforms.uNight=trainU.uNight;sh.uniforms.uCab={value:isCab?1:0};
-    sh.vertexShader="varying vec3 vMP;\nvarying vec3 vMN;\n"+sh.vertexShader.replace("#include <begin_vertex>","#include <begin_vertex>\nvMP=position;vMN=normal;");
-    sh.fragmentShader="varying vec3 vMP;\nvarying vec3 vMN;\nuniform float uNight;\nuniform float uCab;\n"+sh.fragmentShader
+    Object.assign(sh.uniforms,{uNight:trainU.uNight,uCam:trainU.uCam,uCab:{value:isCab?1:0}});
+    sh.vertexShader="varying vec3 vMP;\nvarying vec3 vMN;\nvarying vec3 vWP;\nvarying vec3 vWN;\n"+sh.vertexShader.replace("#include <begin_vertex>",`#include <begin_vertex>
+      vMP=position;vMN=normal;vec4 wp=vec4(transformed,1.);vec3 wn=objectNormal;
+      #ifdef USE_INSTANCING
+        wp=instanceMatrix*wp;wn=mat3(instanceMatrix)*wn;
+      #endif
+      vWP=(modelMatrix*wp).xyz;vWN=mat3(modelMatrix)*wn;`);
+    sh.fragmentShader=`varying vec3 vMP;\nvarying vec3 vMN;\nvarying vec3 vWP;\nvarying vec3 vWN;\nuniform float uNight;\nuniform float uCab;\nuniform vec3 uCam;
+      float h1(float n){return fract(sin(n*127.1)*43758.5453);}
+      vec3 envAt(vec3 r){                      // sky, a band of city skyline at the horizon, street below
+        float a=atan(r.z,r.x);
+        vec3 sky=mix(vec3(.93,.94,.95),vec3(.55,.68,.82),smoothstep(0.,.6,r.y));
+        float bh=.03+.11*h1(floor(a*36.))*h1(floor(a*9.)+3.);
+        if(r.y>0.&&r.y<bh) sky=mix(vec3(.55,.57,.6),vec3(.72,.73,.74),h1(floor(a*36.)+1.));
+        return r.y>0.?sky:mix(vec3(.42,.42,.41),vec3(.25,.26,.27),smoothstep(0.,-.4,r.y));
+      }
+      `+sh.fragmentShader
       .replace("#include <color_fragment>",`
         vec3 lineC=vec3(.55,.3,.7);
         #if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
           lineC=vColor.rgb;
         #endif
-        vec3 an=abs(normalize(vMN));float y=vMP.y,ax=abs(vMP.x);float glassF=0.,lampF=0.;
-        vec3 paint=vec3(.86,.88,.9);
-        bool front=uCab>.5&&vMP.z>9.0&&an.x<.82&&an.y<.85&&ax<1.42,side=an.x>.55;
+        vec3 an=abs(normalize(vMN));float y=vMP.y,z=vMP.z,ax=abs(vMP.x);
+        float glassF=0.,lampF=0.,metalF=1.,rough=.38;
+        // brushed stainless: fine lengthwise grain plus faint panel-to-panel variation
+        float grain=.55*h1(floor(y*240.))+.3*h1(floor(y*70.)+floor(z*.8)*13.)+.15*h1(floor(z*.45)+7.);
+        vec3 steel=vec3(.80,.82,.84)*(.93+.1*grain);
+        vec3 paint=steel;
+        bool front=uCab>.5&&z>9.0&&an.x<.82&&an.y<.85&&ax<1.42,side=an.x>.55;
         if(front){
-          // BEML Namma Metro cab: black face inside a line-coloured frame, silver bumper below, display above
           bool inner=ax<1.06&&y>1.44&&y<3.55,ring=ax<1.34&&y>1.24&&y<3.76;
           if(inner){
-            if(y>2.35){paint=vec3(.10,.15,.20);glassF=1.;}
-            else if(y>1.58&&y<1.8&&ax>.68&&ax<.9){paint=vec3(.95,.95,.9);lampF=2.;}
-            else paint=vec3(.035,.04,.05);
+            if(y>2.35){paint=vec3(.05,.08,.11);glassF=1.;rough=.04;metalF=0.;}
+            else if(y>1.58&&y<1.8&&ax>.68&&ax<.9){paint=vec3(.95,.95,.9);lampF=2.;metalF=0.;}
+            else {paint=vec3(.03,.033,.04);rough=.18;metalF=.3;}
           }
-          else if(ring) paint=lineC;
-          else if(y>3.8&&y<3.98&&ax<.34){paint=vec3(.25,.05,.03);lampF=1.;}
-          else if(y<.98) paint=vec3(.2,.21,.23);
+          else if(ring){paint=lineC*(.96+.06*grain);rough=.3;metalF=.25;}
+          else if(y>3.8&&y<3.98&&ax<.34){paint=vec3(.2,.04,.02);lampF=1.;metalF=0.;}
+          else if(y<.98){paint=vec3(.16,.17,.18);rough=.8;metalF=0.;}
+        } else if(y<.95){paint=vec3(.15,.155,.16)*(.85+.3*h1(floor(z*3.)));rough=.85;metalF=0.;}
+        else {
+          // four doors a side; the driving car's are shifted back clear of the cab
+          float off=uCab>.5?-.55:0.;float dz=1e3;
+          for(int i=0;i<4;i++){float c=(float(i)-1.5)*5.1+off;dz=min(dz,abs(z-c));}
+          bool door=side&&dz<.72&&y<3.05;
+          if(door){
+            paint=steel*.97;
+            float leaf=abs(dz-.36);
+            if(y>1.78&&y<2.86&&leaf<.25){paint=vec3(.045,.06,.075);glassF=1.;rough=.05;metalF=0.;}
+            if(dz<.012||abs(dz-.72)<.02||abs(y-3.04)<.015){paint*=.35;}          // door seams
+          }
+          else if(side&&y>1.72&&y<2.62){
+            float cell=fract((z+50.)/1.68);
+            bool pillar=cell<.08||abs(y-1.72)<.035||abs(y-2.62)<.035;
+            if(!pillar){paint=vec3(.045,.06,.075);glassF=1.;rough=.05;metalF=0.;}
+          }
+          if(y>1.24&&y<1.56){paint=lineC*(.95+.06*grain);rough=.3;metalF=.25;}   // line stripe runs across the doors too
+          if(abs(y-3.62)<.02||abs(y-1.0)<.015) paint*=.55;                        // rain gutter and skirt seam
+          if(y>3.62){paint=vec3(.70,.72,.74)*(.9+.12*grain);rough=.6;metalF=.5;}
+          paint*=mix(.82,1.,smoothstep(.95,1.6,y));                                // road grime low down
         }
-        else if(y<.95) paint=vec3(.2,.21,.23);
-        else if(side&&y>1.70&&y<2.62){paint=vec3(.09,.12,.16);glassF=1.;}
-        else if(y>1.23&&y<1.57) paint=lineC;
-        else if(y>3.62) paint=vec3(.72,.74,.77);
         diffuseColor.rgb=paint;`)
-      .replace("#include <emissivemap_fragment>","#include <emissivemap_fragment>\n totalEmissiveRadiance+=vec3(1.,.86,.62)*glassF*uNight*.7+(lampF>1.5?vec3(1.,1.,.92)*(.35+uNight):vec3(1.,.18,.08)*(.5+.5*uNight))*step(.5,lampF);");
+      .replace("#include <emissivemap_fragment>",`#include <emissivemap_fragment>
+        {
+          vec3 V=normalize(vWP-uCam),N=normalize(vWN);if(dot(N,V)>0.)N=-N;
+          vec3 R=reflect(V,N);float fr=pow(1.-max(dot(-V,N),0.),5.);
+          float day=1.-.85*uNight;vec3 env=envAt(R)*day;
+          float k=glassF>.5?(.16+.84*fr):mix(.03+.3*fr,.32+.45*fr,metalF)*(1.-rough*.6);
+          diffuseColor.rgb*=(1.-k*.7);
+          totalEmissiveRadiance+=env*k*(metalF>.5?mix(vec3(1.),diffuseColor.rgb*1.4,.35):vec3(1.));
+        }
+        totalEmissiveRadiance+=vec3(.95,.92,.82)*glassF*uNight*.45*(front?0.:1.)+(lampF>1.5?vec3(1.,1.,.92)*(.35+uNight):vec3(1.,.18,.08)*(.5+.5*uNight))*step(.5,lampF);`)
+      .replace("#include <roughnessmap_fragment>","#include <roughnessmap_fragment>\n roughnessFactor=rough;");
   };
-  m.customProgramCacheKey=()=>"nm-train-"+(isCab?1:0);
+  m.customProgramCacheKey=()=>"nm-train2-"+(isCab?1:0);
   return m;
 }
 const model={ready:false,cab:null,mid:null,cabTrip:[],midTrip:[]};
 fetch("train.bin").then(r=>r.ok?r.arrayBuffer():Promise.reject(r.status)).then(buf=>{
-  const dv=new DataView(buf);if(String.fromCharCode(...new Uint8Array(buf,0,4))!=="NMTR")throw new Error("bad model");
+  const dv=new DataView(buf);if(String.fromCharCode(...new Uint8Array(buf,0,4))!=="NMTR"||dv.getUint32(4,true)!==2)throw new Error("bad model");
   let o=8;const geos=[];
   for(let c=0;c<2;c++){const nv=dv.getUint32(o,true),nt=dv.getUint32(o+4,true);o+=8;
     const pos=new Float32Array(buf.slice(o,o+nv*12));o+=nv*12;
+    const nrm=new Int8Array(buf.slice(o,o+nv*4));o+=nv*4;
     const idx=nv<65536?new Uint16Array(buf.slice(o,o+nt*6)):new Uint32Array(buf.slice(o,o+nt*12));o+=idx.byteLength;if(o%4)o+=4-o%4;
-    const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(pos,3));g.setIndex(new THREE.BufferAttribute(idx,1));g.computeVertexNormals();geos.push(g);}
+    const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(pos,3));g.setIndex(new THREE.BufferAttribute(idx,1));g.setAttribute("normal",new THREE.InterleavedBufferAttribute(new THREE.InterleavedBuffer(nrm,4),3,0,true));geos.push(g);}
   model.cab=new THREE.InstancedMesh(geos[0],paintMaterial(true),2*160);model.mid=new THREE.InstancedMesh(geos[1],paintMaterial(false),4*160);
   [model.cab,model.mid].forEach(m=>{m.count=0;m.frustumCulled=false;m.setColorAt(0,new THREE.Color());twin.add(m);});
   model.ready=true;
@@ -962,7 +1009,7 @@ function tick(dt,now){
   placeTrains();
   if(mode==="ride"&&ride)updateRide();
   if(follow&&selTrip&&mode==="orbit"&&!map.isMoving()){const p=trainPos(selTrip);if(p)map.jumpTo({center:p.ll});}
-  const fc=map.getFreeCameraOptions().position;camLocal.set((fc.x-O.x)/MS,fc.z/MS,(fc.y-O.y)/MS);
+  const fc=map.getFreeCameraOptions().position;camLocal.set((fc.x-O.x)/MS,fc.z/MS,(fc.y-O.y)/MS);trainU.uCam.value.copy(camLocal);
   const z=map.getZoom(),wz=mode==="ride"?1:Math.min(5,Math.max(1,2**(15.6-z))),w=mode==="ride"?1:wz*trainScale;
   twin.visible=mode==="ride"||z>=13.2;
   if(z<13.8&&now-dotT>400){dotT=now;updateTrainDots();}

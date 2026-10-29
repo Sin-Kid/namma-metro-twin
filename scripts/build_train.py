@@ -7,7 +7,7 @@ and run:  python3 scripts/build_train.py path/to/3d-model.obj
 Output: one driving car and one middle car, pantographs removed, body kept at full detail (Namma Metro uses third rail),
 scaled to Namma Metro proportions (21.6 m car pitch, ~2.9 m wide, floor ~0.94 m above rail),
 simplified for real-time use. Car length runs along +Z (the driving car's nose at +Z), Y up, rail top at Y=0.
-File layout (little-endian): "NMTR", u32 version, then per car: u32 nVerts, u32 nTris, f32[nVerts*3], u16/u32 indices.
+File layout (little-endian): "NMTR", u32 version (2), then per car: u32 nVerts, u32 nTris, f32[nVerts*3] positions,\ni8[nVerts*4] normals, u16/u32 indices, padded to 4 bytes.
 """
 import sys, struct, pathlib
 import numpy as np
@@ -57,9 +57,32 @@ def car(x0, x1, target):
   out[:, 2] = -(v2[:, 0] - cx) * SCALE[0]
   # (x, y, z) -> (z, y, -x) is a rotation, so triangle winding is unchanged
   if x0 == SEAMS[0]: out, f2 = round_nose(out, f2)
+  out, f2, nrm = crease_normals(out, f2)
   print(f"car {x0}..{x1}: {keep.sum()} -> {len(f2)} triangles, {len(out)} vertices, "
         f"extent x {out[:,0].min():.2f}..{out[:,0].max():.2f} y {out[:,1].min():.2f}..{out[:,1].max():.2f} z {out[:,2].min():.2f}..{out[:,2].max():.2f}")
-  return out.astype(np.float32), f2.astype(np.uint32)
+  return out.astype(np.float32), f2.astype(np.uint32), nrm
+
+def crease_normals(v, f, crease_deg=38):
+  """Smooth shading across gentle curves (the nose, the roof), hard edges at creases.
+  The source mixes face windings, so neighbouring normals are sign-aligned before averaging."""
+  v = np.asarray(v, np.float64); f = np.asarray(f, np.int64)
+  fn = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+  area = np.linalg.norm(fn, axis=1); fn = fn / np.maximum(area, 1e-12)[:, None]
+  inc = [[] for _ in range(len(v))]
+  for i, t in enumerate(f):
+    for c in t: inc[c].append(i)
+  cosT = np.cos(np.radians(crease_deg)); verts, nrms, key, out_f = [], [], {}, np.empty_like(f)
+  for i, t in enumerate(f):
+    for j, c in enumerate(t):
+      n0 = fn[i]; acc = np.zeros(3)
+      for k in inc[c]:
+        d = fn[k] @ n0
+        if abs(d) >= cosT: acc += np.sign(d or 1) * fn[k] * area[k]
+      acc = acc / (np.linalg.norm(acc) or 1)
+      q = (c, *np.round(acc * 64).astype(int))
+      if q not in key: key[q] = len(verts); verts.append(v[c]); nrms.append(acc)
+      out_f[i, j] = key[q]
+  return np.array(verts, np.float32), out_f, np.array(nrms, np.float32)
 
 def round_nose(v, f, zs=8.6, depth=1.05, max_edge=0.4):
   """Bend the source's flat cab front into the rounded nose of BEML's Namma Metro cars:
@@ -87,10 +110,12 @@ def round_nose(v, f, zs=8.6, depth=1.05, max_edge=0.4):
   return v.astype(np.float32), f
 
 cars = [car(SEAMS[0], SEAMS[1], 18000), car(SEAMS[1], SEAMS[2], 24000)]
-buf = bytearray(b"NMTR" + struct.pack("<I", 1))
-for v, f in cars:
+buf = bytearray(b"NMTR" + struct.pack("<I", 2))   # v2: per-vertex normals as int8x4 after the positions
+for v, f, n in cars:
   buf += struct.pack("<II", len(v), len(f))
   buf += v.tobytes()
+  n8 = np.zeros((len(n), 4), np.int8); n8[:, :3] = np.clip(np.round(n * 127), -127, 127)
+  buf += n8.tobytes()
   buf += (f.astype(np.uint16) if len(v) < 65536 else f).tobytes()
   if len(buf) % 4: buf += b"\0" * (4 - len(buf) % 4)
 out = pathlib.Path(__file__).resolve().parent.parent / "src" / "train.bin"
