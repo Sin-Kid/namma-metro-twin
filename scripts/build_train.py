@@ -56,9 +56,35 @@ def car(x0, x1, target):
   out[:, 1] = v2[:, 1] * SCALE[1]
   out[:, 2] = -(v2[:, 0] - cx) * SCALE[0]
   # (x, y, z) -> (z, y, -x) is a rotation, so triangle winding is unchanged
+  if x0 == SEAMS[0]: out, f2 = round_nose(out, f2)
   print(f"car {x0}..{x1}: {keep.sum()} -> {len(f2)} triangles, {len(out)} vertices, "
         f"extent x {out[:,0].min():.2f}..{out[:,0].max():.2f} y {out[:,1].min():.2f}..{out[:,1].max():.2f} z {out[:,2].min():.2f}..{out[:,2].max():.2f}")
   return out.astype(np.float32), f2.astype(np.uint32)
+
+def round_nose(v, f, zs=8.6, depth=1.05, max_edge=0.4):
+  """Bend the source's flat cab front into the rounded nose of BEML's Namma Metro cars:
+  curved in plan, slightly raked top and bottom. The nose faces are subdivided first so the bend is smooth."""
+  v = [tuple(p) for p in v]; mid = {}
+  def midpoint(a, b):
+    k = (a, b) if a < b else (b, a)
+    if k not in mid: mid[k] = len(v); v.append(tuple((np.array(v[a]) + np.array(v[b])) / 2))
+    return mid[k]
+  faces = [tuple(t) for t in f]
+  for _ in range(4):
+    nxt, split = [], 0
+    for a, b, c in faces:
+      P = np.array([v[a], v[b], v[c]])
+      if P[:, 2].min() > zs - 0.4 and max(np.linalg.norm(P[0] - P[1]), np.linalg.norm(P[1] - P[2]), np.linalg.norm(P[2] - P[0])) > max_edge:
+        ab, bc, ca = midpoint(a, b), midpoint(b, c), midpoint(c, a)
+        nxt += [(a, ab, ca), (ab, b, bc), (ca, bc, c), (ab, bc, ca)]; split += 1
+      else: nxt.append((a, b, c))
+    faces = nxt; print("  nose split", split)
+    if not split: break
+  v = np.array(v, np.float64); f = np.array(faces, np.int64)
+  zf = v[:, 2].max(); t = np.clip((v[:, 2] - zs) / (zf - zs), 0, 1) ** 1.6
+  bend = 0.85 * (v[:, 0] / 1.47) ** 2 + 0.35 * np.clip((v[:, 1] - 2.2) / 2.1, -1, 1) ** 2
+  v[:, 2] -= depth * t * bend
+  return v.astype(np.float32), f
 
 cars = [car(SEAMS[0], SEAMS[1], 18000), car(SEAMS[1], SEAMS[2], 24000)]
 buf = bytearray(b"NMTR" + struct.pack("<I", 1))

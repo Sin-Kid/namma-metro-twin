@@ -168,12 +168,17 @@ function paintMaterial(isCab){
         #endif
         vec3 an=abs(normalize(vMN));float y=vMP.y,ax=abs(vMP.x);float glassF=0.,lampF=0.;
         vec3 paint=vec3(.86,.88,.9);
-        bool side=an.x>.55,front=uCab>.5&&vMP.z>9.7&&an.x<.6&&an.y<.8;
+        bool front=uCab>.5&&vMP.z>9.0&&an.x<.82&&an.y<.85&&ax<1.42,side=an.x>.55;
         if(front){
-          if(y>2.05&&y<3.2&&ax<1.24&&vMP.z>10.05){paint=vec3(.07,.1,.14);glassF=1.;}
-          else if(y>3.27&&y<3.55&&ax<.62&&an.y<.5){paint=vec3(.12,.08,.02);lampF=1.;}
-          else if(y>1.3&&y<1.62&&ax>.72&&ax<1.18){paint=vec3(.95,.95,.9);lampF=2.;}
-          else if(y>.98&&y<1.95) paint=lineC;
+          // BEML Namma Metro cab: black face inside a line-coloured frame, silver bumper below, display above
+          bool inner=ax<1.06&&y>1.44&&y<3.55,ring=ax<1.34&&y>1.24&&y<3.76;
+          if(inner){
+            if(y>2.35){paint=vec3(.10,.15,.20);glassF=1.;}
+            else if(y>1.58&&y<1.8&&ax>.68&&ax<.9){paint=vec3(.95,.95,.9);lampF=2.;}
+            else paint=vec3(.035,.04,.05);
+          }
+          else if(ring) paint=lineC;
+          else if(y>3.8&&y<3.98&&ax<.34){paint=vec3(.25,.05,.03);lampF=1.;}
           else if(y<.98) paint=vec3(.2,.21,.23);
         }
         else if(y<.95) paint=vec3(.2,.21,.23);
@@ -181,7 +186,7 @@ function paintMaterial(isCab){
         else if(y>1.23&&y<1.57) paint=lineC;
         else if(y>3.62) paint=vec3(.72,.74,.77);
         diffuseColor.rgb=paint;`)
-      .replace("#include <emissivemap_fragment>","#include <emissivemap_fragment>\n totalEmissiveRadiance+=vec3(1.,.86,.62)*glassF*uNight*.7+(lampF>1.5?vec3(1.,1.,.92)*(.35+uNight):vec3(1.,.62,.12)*(.5+.5*uNight))*step(.5,lampF);");
+      .replace("#include <emissivemap_fragment>","#include <emissivemap_fragment>\n totalEmissiveRadiance+=vec3(1.,.86,.62)*glassF*uNight*.7+(lampF>1.5?vec3(1.,1.,.92)*(.35+uNight):vec3(1.,.18,.08)*(.5+.5*uNight))*step(.5,lampF);");
   };
   m.customProgramCacheKey=()=>"nm-train-"+(isCab?1:0);
   return m;
