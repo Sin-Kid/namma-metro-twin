@@ -57,6 +57,7 @@ def car(x0, x1, target):
   out[:, 2] = -(v2[:, 0] - cx) * SCALE[0]
   # (x, y, z) -> (z, y, -x) is a rotation, so triangle winding is unchanged
   if x0 == SEAMS[0]: out, f2 = round_nose(out, f2)
+  else: out, f2 = fill_roof_well(out, f2)
   out, f2, nrm = crease_normals(out, f2)
   print(f"car {x0}..{x1}: {keep.sum()} -> {len(f2)} triangles, {len(out)} vertices, "
         f"extent x {out[:,0].min():.2f}..{out[:,0].max():.2f} y {out[:,1].min():.2f}..{out[:,1].max():.2f} z {out[:,2].min():.2f}..{out[:,2].max():.2f}")
@@ -83,6 +84,23 @@ def crease_normals(v, f, crease_deg=38):
       if q not in key: key[q] = len(verts); verts.append(v[c]); nrms.append(acc)
       out_f[i, j] = key[q]
   return np.array(verts, np.float32), out_f, np.array(nrms, np.float32)
+
+def fill_roof_well(v, f, z0=5.35, z1=9.3, y0=3.58):
+  """The middle car carries a lowered roof well for its pantograph (z0..z1). Namma Metro takes power from a third rail,
+  so cut the well out and continue the plain roof across it, using the roof's own cross-section at z0."""
+  C = v[f].mean(1)
+  well = (C[:, 2] > z0 + 0.01) & (C[:, 2] < z1 - 0.01) & (C[:, 1] > y0) & (np.abs(C[:, 0]) < 1.40)
+  f = f[~well]
+  edge = np.where((np.abs(v[:, 2] - z0) < 0.01) & (v[:, 1] > y0))[0]
+  prof = np.unique(np.round(v[edge][:, :2], 4), axis=0)
+  prof = prof[np.argsort(np.arctan2(prof[:, 1] - 2.0, prof[:, 0]))]          # walk the arch from one side to the other
+  n = len(prof); base = len(v)
+  ring = lambda z: np.c_[prof[:, 0], prof[:, 1], np.full(n, z)]
+  v = np.vstack([v, ring(z0), ring(z1)])
+  quads = [(base + i, base + i + 1, base + n + i + 1, base + n + i) for i in range(n - 1)]
+  f = np.vstack([f, np.array([(a, b, c) for a, b, c, d in quads] + [(a, c, d) for a, b, c, d in quads])])
+  print(f"  roof well filled with a {n}-point arch")
+  return v, f
 
 def round_nose(v, f, zs=8.6, depth=1.05, max_edge=0.4):
   """Bend the source's flat cab front into the rounded nose of BEML's Namma Metro cars:
