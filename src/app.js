@@ -37,10 +37,20 @@ const AREA=(()=>{const k=Math.cos(12.97*Math.PI/180),R=AREA_PAD/111320,pts=[];
   const cr=(o,a,b)=>((a[0]-o[0])*k)*(b[1]-o[1])-(a[1]-o[1])*((b[0]-o[0])*k),lo=[],up=[];
   for(const p of pts){while(lo.length>1&&cr(lo[lo.length-2],lo[lo.length-1],p)<=0)lo.pop();lo.push(p);}
   for(let i=pts.length-1;i>=0;i--){const p=pts[i];while(up.length>1&&cr(up[up.length-2],up[up.length-1],p)<=0)up.pop();up.push(p);}
-  const hull=lo.slice(0,-1).concat(up.slice(0,-1));hull.push(hull[0]);
+  const hull0=lo.slice(0,-1).concat(up.slice(0,-1));       // counter-clockwise
+  /* rough, hand-drawn edge: densify every ~350 m and push each point outward by a wobbly 0–700 m */
+  const M=111320,toXY=p=>[p[0]*k*M,p[1]*M],toLL=q=>[q[0]/(k*M),q[1]/M],ring=[];
+  for(let i=0;i<hull0.length;i++){const a=toXY(hull0[i]),b=toXY(hull0[(i+1)%hull0.length]),L=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.max(1,Math.round(L/350));
+    for(let j=0;j<n;j++)ring.push([a[0]+(b[0]-a[0])*j/n,a[1]+(b[1]-a[1])*j/n]);}
+  const N=ring.length,hull=[],soon=[];
+  for(let i=0;i<N;i++){const p=ring[(i-1+N)%N],q=ring[(i+1)%N],dx=q[0]-p[0],dy=q[1]-p[1],l=Math.hypot(dx,dy)||1,nx=dy/l,ny=-dx/l;
+    const t=i/N*Math.PI*2,wob=350+180*Math.sin(t*7+1.3)+120*Math.sin(t*17+.4)+60*Math.sin(t*41+2.1);
+    hull.push(toLL([ring[i][0]+nx*wob,ring[i][1]+ny*wob]));
+    if(i%Math.max(1,Math.round(N/14))===0)soon.push(toLL([ring[i][0]+nx*3200,ring[i][1]+ny*3200]));}
+  hull.push(hull[0]);
   let w=180,s=90,e=-180,n=-90;hull.forEach(([x,y])=>{w=Math.min(w,x);e=Math.max(e,x);s=Math.min(s,y);n=Math.max(n,y);});
-  const mx=(e-w)*.25,my=(n-s)*.25;
-  return {hull,bounds:[[w-mx,s-my],[e+mx,n+my]]};
+  const mx=(e-w)*.08,my=(n-s)*.08;
+  return {hull,soon,bounds:[[w-mx,s-my],[e+mx,n+my]]};
 })();
 let areaOnly=true;
 const CITY={center:[77.5965,12.9748],zoom:14.6,pitch:62,bearing:-28};
@@ -371,13 +381,24 @@ function stationGeo(){return {type:"FeatureCollection",features:stations.map(f=>
   geometry:{type:"Point",coordinates:[f.lon,f.lat]}}))};}
 function addLayers(){
   if(!map.getSource("area"))map.addSource("area",{type:"geojson",data:{type:"FeatureCollection",features:[
-    {type:"Feature",properties:{},geometry:{type:"Polygon",coordinates:[[[-179,-85],[179,-85],[179,85],[-179,85],[-179,-85]],AREA.hull.slice().reverse()]}},
-    {type:"Feature",properties:{edge:1},geometry:{type:"LineString",coordinates:AREA.hull}}]}});
-  if(!map.getLayer("area-mask"))map.addLayer({id:"area-mask",type:"fill",source:"area",slot:"top",filter:["!",["has","edge"]],
-    layout:{visibility:areaOnly?"visible":"none"},paint:{"fill-color":"#0e1522","fill-opacity":.62,"fill-emissive-strength":1}});
-  if(!map.getLayer("area-edge"))map.addLayer({id:"area-edge",type:"line",source:"area",slot:"top",filter:["has","edge"],
-    layout:{visibility:areaOnly?"visible":"none","line-join":"round"},paint:{"line-color":"#a46ad8","line-width":["interpolate",["linear"],["zoom"],10,1.6,15,3],
-      "line-opacity":.9,"line-dasharray":[3,2],"line-emissive-strength":1}});
+    {type:"Feature",properties:{k:"mask"},geometry:{type:"Polygon",coordinates:[[[-179,-85],[179,-85],[179,85],[-179,85],[-179,-85]],AREA.hull.slice().reverse()]}},
+    {type:"Feature",properties:{k:"edge"},geometry:{type:"LineString",coordinates:AREA.hull}},
+    ...AREA.soon.map(c=>({type:"Feature",properties:{k:"soon"},geometry:{type:"Point",coordinates:c}}))]}});
+  const vis=areaOnly?"visible":"none";
+  /* outside the metro area: hide 3D landmarks and basemap labels, cover the ground, say "Coming soon" */
+  if(!map.getLayer("area-clip"))try{map.addLayer({id:"area-clip",type:"clip",source:"area",filter:["==",["get","k"],"mask"],
+    layout:{"clip-layer-types":["model","symbol"]}});}catch(e){}
+  if(!map.getLayer("area-mask"))map.addLayer({id:"area-mask",type:"fill",source:"area",slot:"top",filter:["==",["get","k"],"mask"],
+    layout:{visibility:vis},paint:{"fill-color":"#141b27","fill-opacity":.97,"fill-emissive-strength":1}});
+  if(!map.getLayer("area-glow"))map.addLayer({id:"area-glow",type:"line",source:"area",slot:"top",filter:["==",["get","k"],"edge"],
+    layout:{visibility:vis,"line-join":"round"},paint:{"line-color":"#7b3fb5","line-width":["interpolate",["linear"],["zoom"],10,8,15,22],"line-blur":["interpolate",["linear"],["zoom"],10,6,15,16],
+      "line-opacity":.55,"line-emissive-strength":1}});
+  if(!map.getLayer("area-edge"))map.addLayer({id:"area-edge",type:"line",source:"area",slot:"top",filter:["==",["get","k"],"edge"],
+    layout:{visibility:vis,"line-join":"round"},paint:{"line-color":"#c99cf0","line-width":["interpolate",["linear"],["zoom"],10,1.6,15,3.2],"line-opacity":.95,"line-emissive-strength":1}});
+  if(!map.getLayer("area-soon"))map.addLayer({id:"area-soon",type:"symbol",source:"area",slot:"top",filter:["==",["get","k"],"soon"],
+    layout:{visibility:vis,"text-field":"COMING SOON","text-font":["DIN Pro Bold","Arial Unicode MS Bold"],"text-size":["interpolate",["linear"],["zoom"],10,13,14,22],
+      "text-letter-spacing":.25,"text-allow-overlap":true,"text-ignore-placement":true,"text-pitch-alignment":"map","text-rotation-alignment":"viewport"},
+    paint:{"text-color":"#8e98a8","text-opacity":.85,"text-emissive-strength":1}});
   if(!map.getSource("routes")){map.addSource("routes",{type:"geojson",data:routeGeo()});map.addSource("stations",{type:"geojson",data:stationGeo()});}
   const fade=["interpolate",["linear"],["zoom"],13.4,1,14.6,0];
   if(!map.getLayer("route-glow"))map.addLayer({id:"route-glow",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
@@ -618,7 +639,7 @@ swTog("#sw-sat",()=>satellite,v=>{satellite=v;curPreset="";
   map.setStyle(satellite?"mapbox://styles/mapbox/standard-satellite":"mapbox://styles/mapbox/standard",{config:{basemap:satellite?{lightPreset:presetFor(),showPointOfInterestLabels:showPOI,showPlaceLabels:showPlaces,showTransitLabels:false}:baseConfig(presetFor())}});
   $("#themegrp").classList.toggle("off",satellite);});
 swTog("#sw-places",()=>showPlaces,v=>{showPlaces=v;try{map.setConfigProperty("basemap","showPlaceLabels",v);}catch(e){}});
-swTog("#sw-area",()=>areaOnly,v=>{areaOnly=v;["area-mask","area-edge"].forEach(l=>map.getLayer(l)&&map.setLayoutProperty(l,"visibility",v?"visible":"none"));
+swTog("#sw-area",()=>areaOnly,v=>{areaOnly=v;["area-mask","area-glow","area-edge","area-soon","area-clip"].forEach(l=>map.getLayer(l)&&map.setLayoutProperty(l,"visibility",v?"visible":"none"));
   map.setMaxBounds(v?AREA.bounds:null);map.setMinZoom(v?9.5:0);});
 swTog("#sw-poi",()=>showPOI,v=>{showPOI=v;try{map.setConfigProperty("basemap","showPointOfInterestLabels",v);}catch(e){}});
 $("#tilt").onclick=()=>{setMode("orbit");map.easeTo({pitch:map.getPitch()<5?60:0,duration:reduce?0:800});};
