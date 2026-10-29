@@ -27,15 +27,18 @@ Set `MAPBOX_TOKEN` in **Netlify → Project configuration → Environment variab
 | `src/index.html` | Page shell: top bar, side panel, cards, dock, popovers |
 | `src/app.js` | Mapbox map, Three.js metro layer, modes (orbit, fly, ride, tour), UI logic |
 | `src/engine.js` | Geometry, height profile, timetable, train physics, journey planner |
-| `src/data.js` | Routes, stops and tunnel portals prepared from the source GeoJSON |
+| `src/data.js` | Routes, stations, tunnel portals and the full timetable (built by `scripts/build_gtfs.py`) |
 | `data/metro-lines-stations.geojson` | Source track and station data |
-| `scripts/prepare_data.py` | Regenerates the route data from the GeoJSON |
+| `scripts/build_gtfs.py` | Builds `src/data.js` from the GTFS feed and future-line data |
+| `data/bmrcl-gtfs.zip` | BMRCL GTFS feed (Vonter, ODbL) |
 | `scripts/build.mjs` | Builds `dist/` and injects the token |
 | `scripts/check.mjs` | Engine sanity tests |
 
 ## Data and accuracy
 
-- Track and station geometry: [geohacker/namma-metro](https://github.com/geohacker/namma-metro) (2020 snapshot, operational and proposed lines; proposed stations approximate).
-- Timetable: terminal first/last trains and headway bands follow BMRCL's published pattern as reported in October 2026. Train positions are simulated from that timetable, not live GPS.
-- Line status as of October 2026: Purple, Green and Yellow in service; Pink Line elevated section cleared and awaiting inauguration; Blue Line under construction.
+- **Timetable, track and stations (Purple, Green, Yellow):** the unofficial BMRCL GTFS feed by [Vonter/bmrcl-gtfs](https://github.com/Vonter/bmrcl-gtfs), transcribed from the timetables on bmrc.co.in, with track geometry and station positions from OpenStreetMap. Licensed ODbL 1.0 (`data/LICENSE-bmrcl-gtfs-ODbL.txt`); `src/data.js` is a derived database under the same licence. Rebuild with `python3 scripts/build_gtfs.py`.
+- Every scheduled trip is included (Tue–Sat, Monday, Sunday and holiday timetables, holidays being the 2nd and 4th Saturdays), including BMRCL's short-loop trains.
+- BMRCL publishes terminal times only. Intermediate station times are modelled from stop spacing, so they can differ from the platform display by a minute or two. There is no public live feed, so positions are simulated from the timetable, not tracked.
+- Station names follow BMRCL's operational-lines map (version 05).
+- **Future lines (Pink, Blue):** [geohacker/namma-metro](https://github.com/geohacker/namma-metro) (MIT), approximate.
 - Base map © Mapbox © OpenStreetMap contributors.

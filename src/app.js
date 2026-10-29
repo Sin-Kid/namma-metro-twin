@@ -25,7 +25,8 @@ const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Q2=new THREE.Quaternion(),V
 /* ---------- map ---------- */
 mapboxgl.accessToken=window.MAPBOX_TOKEN||"";
 if(!mapboxgl.accessToken){$("#load").textContent="No Mapbox token configured. Set MAPBOX_TOKEN in .env (local) or in Netlify environment variables.";return;}
-const HOME={center:[77.605,12.965],zoom:11.3,pitch:58,bearing:-18};
+const HOME={center:[77.605,12.968],zoom:11.4,pitch:40,bearing:-12};
+const CITY={center:[77.5965,12.9748],zoom:14.6,pitch:62,bearing:-28};
 /* basemap look, as in Mapbox's Standard style demo: lighting presets, colour themes and label toggles.
    Default, Faded and Mono are built into the style; Warm, Ocean and Vivid are colour-grading tables (LUTs) made here. */
 let theme="warm",showPlaces=true,showPOI=false,satellite=false,xray=false;
@@ -180,7 +181,7 @@ function colourStatic(){
   roofM.instanceColor.needsUpdate=true;ugM.instanceColor.needsUpdate=true;crowdM.material.color.set(T.person);rainLines.material.color.set(T.rain);
 }
 function demand(){const m=(clock.sec/60)%1440,d=dayKey();if(!active.length)return 0;
-  const v=m<420?.2:m<480?.5:m<660?1:m<1020?.45:m<1200?.95:m<1320?.5:.2;return d==="sun"?v*.6:d==="sat"?v*.8:v;}
+  const v=m<420?.2:m<480?.5:m<660?1:m<1020?.45:m<1200?.95:m<1320?.5:.2;return d==="sunday"?v*.6:d==="holiday"?v*.75:v;}
 let crowdLevel=-1;
 function placeCrowds(){
   const dm=showCrowds?demand():0,w=wideU.value,ts=stScale(),L=lenK*ts,cs=Math.min(w,3*ts);crowdLevel=dm;let k=0;
@@ -194,9 +195,10 @@ function placeCrowds(){
 
 /* ---------- clock ---------- */
 const clock={live:true,speed:1,sec:0,dow:4};
-const dayKey=()=>E.dayType(clock.dow);
+const dayKey=()=>clock.svc||E.serviceFor(clock.dow,clock.live?clock.ymd:null);
+const SVC_LABEL={weekday:"Tue–Sat timetable",monday:"Monday timetable",sunday:"Sunday timetable",holiday:"Holiday timetable"};
 const DAYN=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-function syncLive(){const n=E.istNow();clock.sec=n.sec;clock.dow=n.dow;clock.date=n.date;}
+function syncLive(){const n=E.istNow();clock.sec=n.sec;clock.dow=n.dow;clock.date=n.date;clock.ymd=n.ymd;}
 syncLive();
 
 /* ---------- trains ---------- */
@@ -221,6 +223,8 @@ function placeTrains(){
 }
 const trainPos=tr=>{const st=E.tripState(tr,clock.sec);if(!st)return null;const p=at(tr.R,st.ch);return {st,p,ll:localToLL(p.X,p.Z)};};
 
+function updateTrainDots(){const src=map.getSource("trains");if(!src)return;
+  src.setData({type:"FeatureCollection",features:active.map(({tr,st})=>{const p=at(tr.R,st.ch);return {type:"Feature",properties:{color:T[tr.R.color]},geometry:{type:"Point",coordinates:localToLL(p.X,p.Z)}};})});}
 /* ---------- custom layer ---------- */
 let renderer=null,lastT=performance.now();
 const layerMatrix=new THREE.Matrix4().makeTranslation(O.x,O.y,O.z).scale(new THREE.Vector3(MS,-MS,MS)).multiply(new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1,0,0),Math.PI/2));
@@ -239,10 +243,10 @@ function stationGeo(){return {type:"FeatureCollection",features:stations.map(f=>
   geometry:{type:"Point",coordinates:[f.lon,f.lat]}}))};}
 function addLayers(){
   if(!map.getSource("routes")){map.addSource("routes",{type:"geojson",data:routeGeo()});map.addSource("stations",{type:"geojson",data:stationGeo()});}
-  const fade=["interpolate",["linear"],["zoom"],13.5,1,16.5,0];
+  const fade=["interpolate",["linear"],["zoom"],13.4,1,14.6,0];
   if(!map.getLayer("route-glow"))map.addLayer({id:"route-glow",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
     paint:{"line-color":["get","color"],"line-width":["interpolate",["linear"],["zoom"],10,14,14,22],"line-blur":["interpolate",["linear"],["zoom"],10,8,14,14],
-      "line-opacity":["interpolate",["linear"],["zoom"],10,.22,13.5,.15,16.5,0]}});
+      "line-opacity":["interpolate",["linear"],["zoom"],10,.18,13.4,.12,14.6,0]}});
   if(!map.getLayer("route-casing"))map.addLayer({id:"route-casing",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
     paint:{"line-color":"#ffffff","line-width":["interpolate",["linear"],["zoom"],10,6.5,14,10],"line-opacity":fade}});
   if(!map.getLayer("route-lines"))map.addLayer({id:"route-lines",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
@@ -250,6 +254,10 @@ function addLayers(){
       "line-dasharray":["case",["==",["get","open"],1],["literal",[1,0]],["literal",[2,1.5]]]}});
   /* the metro's three.js layer must come before the building extrusions, or the buildings render flat */
   if(!map.getLayer("metro-3d"))map.addLayer(metroLayer,undefined);
+  if(!map.getSource("trains"))map.addSource("trains",{type:"geojson",data:{type:"FeatureCollection",features:[]}});
+  if(!map.getLayer("train-dots"))map.addLayer({id:"train-dots",type:"circle",source:"trains",slot:"top",maxzoom:13.8,
+    paint:{"circle-radius":["interpolate",["linear"],["zoom"],10,3,13,5],"circle-color":["get","color"],"circle-stroke-color":"#ffffff","circle-stroke-width":1.6,
+      "circle-opacity":["interpolate",["linear"],["zoom"],12.8,1,13.6,0],"circle-stroke-opacity":["interpolate",["linear"],["zoom"],12.8,1,13.6,0]}});
   if(!map.getLayer("st-dots"))map.addLayer({id:"st-dots",type:"circle",source:"stations",slot:"top",filter:["==",["get","vis"],1],
     paint:{"circle-radius":["interpolate",["linear"],["zoom"],10,["case",["==",["get","ix"],1],5.5,3.4],15,["case",["==",["get","ix"],1],9,6]],
       "circle-color":["case",["==",["get","ix"],1],"#ffffff",["get","color"]],"circle-stroke-color":["case",["==",["get","ix"],1],"#18202b","#ffffff"],"circle-stroke-width":2.2,
@@ -289,9 +297,9 @@ function lineStatus(){
   const mm=clock.sec/60,day=dayKey();
   routes.forEach(R=>{const el=$("#now-"+R.color);
     if(R.status!=="open"){el.innerHTML=`<span class="dot build"></span>${R.color==="pink"?"Awaiting opening":"Under construction"}`;return;}
-    const tt=E.TT[R.color],first=tt.first[day]*60,running=active.filter(a=>a.tr.R===R).length;
+    const first=E.firstLast(R.color,day)[0],running=active.filter(a=>a.tr.R===R).length;
     if(!running){el.innerHTML=`<span class="dot off"></span>Closed · first ${hm(first)}`;return;}
-    const hw=E.headway(R.color,mm,day);el.innerHTML=`<span class="dot"></span>${running} trains · every ${hw.h} min`;});
+    const hw=E.headway(R.color,mm,day);el.innerHTML=`<span class="dot"></span>${running} trains${hw.h?` · every ${hw.h} min`:""}`;});
 }
 
 /* ---------- stations pane + planner ---------- */
@@ -307,7 +315,7 @@ $("#tab-plan").onclick=()=>tab("plan");$("#tab-lines").onclick=()=>tab("lines");
 const drawer=$("#drawer");
 function setDrawer(open){drawer.hidden=!open;$("#menu").setAttribute("aria-expanded",open);}
 $("#menu").onclick=()=>setDrawer(drawer.hidden);
-if(narrow())setDrawer(false);
+setDrawer(false);
 
 let planFrom=null,planTo=null;
 function setPlan(which,f){if(which==="from"){planFrom=f;$("#pfrom").value=f?f.name:"";}else{planTo=f;$("#pto").value=f?f.name:"";}runPlan();}
@@ -346,7 +354,7 @@ function stationDeps(f){
   const day=dayKey(),rows=[];
   f.routes.forEach(st=>{const R=st.route;if(R.status!=="open")return;const d=E.departures(st,day,clock.sec,2);
     [0,1].forEach(dir=>{if((dir===0&&st.idx===R.stops.length-1)||(dir===1&&st.idx===0))return;
-      const toName=R.stops[dir?0:R.stops.length-1].f.name,nx=d.next[dir];
+      const nx=d.next[dir],toName=nx[0]?R.stops[nx[0].tr.i1].f.name:R.stops[dir?0:R.stops.length-1].f.name;
       rows.push(`<div class="dep" style="--c:var(--${R.color})"><i></i><span class="to">to ${esc(toName)}</span><span class="t${nx[0]&&nx[0].t-clock.sec<300?" soon":""}">${nx.length?hm(nx[0].t)+` <small>${inMin(nx[0].t-clock.sec)}</small>`:"No more today"}</span></div>`);});});
   return rows.length?`<div class="eyebrow" style="margin-bottom:4px">Next trains · ${clock.live?"live":"sim "+hm(clock.sec)}</div><div class="deps">${rows.join("")}</div>`:"";
 }
@@ -362,7 +370,7 @@ function renderCard(){
   }else if(selTrip){const tr=selTrip,R=tr.R,tp=trainPos(tr);
     if(!tp){card.innerHTML=`${xBtn}<h2>Trip finished</h2><p class="note" style="padding:0">This train reached ${esc(R.stops[tr.i1].f.name)}.</p>`;}
     else{const st=tp.st,dest=R.stops[tr.i1].f.name,nxt=R.stops[st.next],eta=st.at>=0&&st.at!==tr.i1?E.depAtStop(tr,st.at):E.timeAtStop(tr,st.next);
-      card.innerHTML=`${xBtn}<h2>To ${esc(dest)}</h2><div class="chips"><span class="chip" style="--c:var(--${R.color})"><i></i>${R.name}</span></div>
+      card.innerHTML=`${xBtn}<h2>To ${esc(dest)}</h2><div class="chips"><span class="chip" style="--c:var(--${R.color})"><i></i>${R.name}</span>${tr.full?"":`<span class="chip" style="--c:var(--ink-2)"><i></i>Short loop</span>`}</div>
       <div class="tiles"><div class="tile"><span class="eyebrow">Speed</span><b>${Math.round(st.v*3.6)} km/h</b></div><div class="tile"><span class="eyebrow">${st.at>=0?"At platform":"Next stop"}</span><b>${esc(st.at>=0?R.stops[st.at].f.name:nxt.f.name)}</b></div>
       <div class="tile"><span class="eyebrow">${st.at>=0?"Departs":"Arrives"}</span><b>${hm(eta,st.at>=0)}</b></div><div class="tile"><span class="eyebrow">Level</span><b>${tp.p.h<-1?"Tunnel":"Viaduct"} ${Math.abs(Math.round(tp.p.h))} m</b></div></div>
       <div class="acts" style="grid-template-columns:1.3fr 1fr"><button class="btn primary" id="cride">Ride this train</button><button class="btn" id="cfol" aria-pressed="${follow}">${follow?"Following":"Follow"}</button></div>`;
@@ -375,7 +383,7 @@ function selectStation(f,fly=true){
   if(!f)return;if(mode==="ride"||mode==="tour"||mode==="fly")setMode("orbit");
   selTrip=null;follow=false;selected=f;placeStatic();renderCard();history.replaceState(null,"","#"+f.slug);
   if(fly)flyToLL([f.lon,f.lat],Math.max(map.getZoom(),15.6),{pitch:62});
-  if(narrow())setDrawer(false);
+  setDrawer(false);
 }
 function selectTrip(tr){selected=null;selTrip=tr;follow=true;placeStatic();renderCard();const p=trainPos(tr);if(p)flyToLL(p.ll,Math.max(map.getZoom(),15.8),{pitch:65});}
 
@@ -406,25 +414,25 @@ $("#clockpill").onclick=()=>togglePop("time");
 document.addEventListener("pointerdown",e=>{if(!e.target.closest(".pop,.tool,#clockpill"))togglePop(null);});
 const liveBtn=$("#livebtn"),scrub=$("#scrub"),daySel=$("#day");
 const setSpeedUI=()=>$$("#speeds button").forEach(b=>b.setAttribute("aria-pressed",+b.dataset.s===clock.speed));
-function goLive(){clock.live=true;clock.speed=1;syncLive();setSpeedUI();liveBtn.setAttribute("aria-pressed","true");placeTrains();renderCard();runPlan();}
+function goLive(){clock.live=true;clock.svc=null;clock.speed=1;syncLive();setSpeedUI();liveBtn.setAttribute("aria-pressed","true");placeTrains();renderCard();runPlan();}
 function leaveLive(){if(clock.live){clock.live=false;liveBtn.setAttribute("aria-pressed","false");}}
 liveBtn.onclick=goLive;
 $$("#speeds button").forEach(b=>b.onclick=()=>{const s=+b.dataset.s;if(s!==1)leaveLive();clock.speed=s;setSpeedUI();});
 scrub.addEventListener("input",()=>{leaveLive();clock.sec=+scrub.value*60;placeTrains();renderCard();});
 scrub.addEventListener("change",runPlan);
-daySel.addEventListener("change",()=>{leaveLive();clock.dow=+daySel.value;placeTrains();renderCard();runPlan();});
+daySel.addEventListener("change",()=>{leaveLive();clock.svc=daySel.value;placeTrains();renderCard();runPlan();});
 function updateClockUI(){
   $("#clocktxt").textContent=hm(clock.sec,!narrow());$("#livedot").className="dot"+(clock.live?"":" off");
   $("#bigtime").innerHTML=`${hm(clock.sec,true)}<small>IST</small>`;
-  const day=dayKey(),dn=DAYN[clock.dow],tt={mon:"Monday timetable",wk:"weekday timetable",sat:"Saturday timetable",sun:"Sunday timetable"}[day];
+  const day=dayKey(),dn=DAYN[clock.dow],tt=SVC_LABEL[day];
   $("#dayline").textContent=clock.live?`${dn} ${clock.date.getUTCDate()} ${clock.date.toLocaleString("en-IN",{month:"short",timeZone:"UTC"})} · ${tt}`:`Simulated ${dn} · ${tt}${clock.speed>1?` · ${clock.speed}×`:""}`;
   if(document.activeElement!==scrub)scrub.value=Math.round(clock.sec/60);
-  if(document.activeElement!==daySel)daySel.value=clock.dow===0?"0":clock.dow===6?"6":clock.dow===1?"1":"4";
+  if(document.activeElement!==daySel)daySel.value=day;
   const hw=E.headway("purple",clock.sec/60,day),n=active.length;
-  if(!n){const today=Math.min(...["purple","green","yellow"].map(c=>E.TT[c].first[day]*60));
-    const first=clock.sec<today?today:Math.min(...["purple","green","yellow"].map(c=>E.TT[c].first[E.dayType((clock.dow+1)%7)]*60));
+  if(!n){const today=Math.min(...["purple","green","yellow"].map(c=>E.firstLast(c,day)[0]));
+    const first=clock.sec<today?today:Math.min(...["purple","green","yellow"].map(c=>E.firstLast(c,E.dayType((clock.dow+1)%7))[0]));
     $("#svc").innerHTML=`<b>Service closed.</b> First trains leave terminals at ${hm(first)}.`;}
-  else $("#svc").innerHTML=`<b>${n} trains running</b> · ${hw.band.toLowerCase()} pattern, every train runs end to end.`;
+  else $("#svc").innerHTML=`<b>${n} trains running</b> · ${hw.band.toLowerCase()} pattern · BMRCL timetable.`;
 }
 
 /* ---------- light, weather ---------- */
@@ -680,10 +688,10 @@ function boardHTML(f){
     if(R.status!=="open"){rows.push(`<span class="br" style="--c:var(--${R.color})"><i></i><span>${R.color==="pink"?"Opening soon":"Under construction"}</span><b></b></span>`);return;}
     const d=E.departures(st,day,clock.sec,1);
     [0,1].forEach(dir=>{if((dir===0&&st.idx===R.stops.length-1)||(dir===1&&st.idx===0))return;
-      const dest=shortName(R.stops[dir?0:R.stops.length-1].f.name),nx=d.next[dir][0];
+      const nx=d.next[dir][0],dest=shortName((nx?R.stops[nx.tr.i1]:R.stops[dir?0:R.stops.length-1]).f.name);
       let t="—",cls="";if(nx){const m=Math.floor((nx.t-clock.sec)/60);t=m<1?"Now":m+" min";cls=m<1?"now":m<4?"soon":"";}
       rows.push(`<span class="br" style="--c:var(--${R.color})"><i></i><span>${esc(dest)}</span><b class="${cls}">${t}</b></span>`);});});
-  return `<span class="bn">${esc(f.name)}</span>${rows.join("")}`;
+  return `<span class="bn">${esc(f.name)}</span>${f.kn?`<span class="bk" lang="kn">${esc(f.kn)}</span>`:""}${rows.join("")}`;
 }
 function refreshBoards(){
   const show=boardsOn&&mode!=="ride"&&map.getZoom()>=14.3;
@@ -706,7 +714,7 @@ function placeBoards(){
 }
 
 /* ---------- per-frame tick (driven by the map's render loop) ---------- */
-let slow=0,cardT=0,boardT=0,frames=0,fpsT=performance.now(),crowdT=0;
+let slow=0,cardT=0,boardT=0,dotT=0,frames=0,fpsT=performance.now(),crowdT=0;
 function tick(dt,now){
   frames++;
   if(clock.live)syncLive();else{clock.sec+=dt*clock.speed;if(clock.sec>=27*3600){clock.sec-=86400;clock.dow=(clock.dow+1)%7;}if(clock.sec<3*3600){clock.sec+=86400;clock.dow=(clock.dow+6)%7;}}
@@ -715,7 +723,9 @@ function tick(dt,now){
   if(mode==="ride"&&ride)updateRide();
   if(follow&&selTrip&&mode==="orbit"&&!map.isMoving()){const p=trainPos(selTrip);if(p)map.jumpTo({center:p.ll});}
   const fc=map.getFreeCameraOptions().position;camLocal.set((fc.x-O.x)/MS,fc.z/MS,(fc.y-O.y)/MS);
-  const wz=mode==="ride"?1:Math.min(14,Math.max(1,2**(15.6-map.getZoom()))),w=mode==="ride"?1:wz*trainScale;
+  const z=map.getZoom(),wz=mode==="ride"?1:Math.min(5,Math.max(1,2**(15.6-z))),w=mode==="ride"?1:wz*trainScale;
+  twin.visible=mode==="ride"||z>=13.2;
+  if(z<13.8&&now-dotT>400){dotT=now;updateTrainDots();}
   if(wideU.value<=0||Math.abs(w-wideU.value)/wideU.value>.04){wideU.value=w;lenK=mode==="ride"?1:Math.min(2,Math.max(1,wz/5));placeStatic();}
   crowdM.visible=showCrowds&&map.getZoom()>14.5;
   updateRain(dt);
@@ -736,7 +746,9 @@ addEventListener("resize",sizeMini);
 applyTheme();placeStatic();setHints();
 map.on("style.load",()=>{curPreset="";addLayers();applyWeather();updateLight();if(!showLabels&&map.getLayer("st-labels"))map.setLayoutProperty("st-labels","visibility","none");});
 map.on("load",()=>{$("#load")&&$("#load").remove();
-  const fromHash=stations.find(s=>s.slug===location.hash.slice(1));if(fromHash)selectStation(fromHash);});
+  const fromHash=stations.find(s=>s.slug===location.hash.slice(1));
+  if(fromHash)selectStation(fromHash);
+  else setTimeout(()=>{if(mode==="orbit"&&!map.isMoving())map.flyTo({...CITY,duration:reduce?0:5200,curve:1.2,essential:true});},700);});
 map.on("error",e=>{const msg=e&&e.error&&e.error.message||"";if(/token|401|403|Unauthorized|Forbidden/i.test(msg)){const l=$("#load");if(l){l.textContent="The Mapbox token was rejected. Check that it's valid and allowed for this site.";}else toast("Mapbox token rejected for this site",6000);}});
 addEventListener("hashchange",()=>{const s=stations.find(s=>s.slug===location.hash.slice(1));if(s&&s!==selected)selectStation(s);});
 window.__twin={map,E,setMode,startRide,nearestTrain,roofMat,platM,edgeM};

@@ -18,7 +18,7 @@ function MetroEngine(DATA){
   };
 
   /* features: [name, lon, lat, kind] */
-  const feats=DATA.feats.map(([n,lon,lat,k],i)=>{const [x,y]=toXY(lon,lat);return {i,name:n,lon,lat,x,y,kind:k==="s"?"station":k==="d"?"depot":"ramp",routes:[]};});
+  const feats=DATA.feats.map(([n,lon,lat,k,kn,code],i)=>{const [x,y]=toXY(lon,lat);return {i,name:n,kn:kn||"",code:code||"",lon,lat,x,y,kind:k==="s"?"station":k==="d"?"depot":"ramp",routes:[]};});
 
   const SLOPE=0.035, PORTAL_EASE=1; // 3.5% ramps
   const routes=DATA.routes.map(r=>{
@@ -72,84 +72,77 @@ function MetroEngine(DATA){
     R.termIdx=[0,n-1];
   });
 
-  /* ---- timetable ----
-     Terminal first/last trains and headway bands follow BMRCL's published pattern as reported in Oct 2026.
-     Times in minutes after midnight; the service day runs 03:00 → 27:00. */
-  const TT={
-    purple:{first:{mon:255,wk:300,sat:300,sun:420},last:[{mon:1385,wk:1382,sat:1385,sun:1385},{mon:1365,wk:1365,sat:1365,sun:1365}]},
-    green:{first:{mon:255,wk:300,sat:300,sun:420},last:[{mon:1377,wk:1377,sat:1380,sun:1380},{mon:1385,wk:1385,sat:1385,sun:1385}]},
-    yellow:{first:{mon:305,wk:360,sat:360,sun:420},last:[{mon:1435,wk:1435,sat:1435,sun:1435},{mon:1362,wk:1362,sat:1362,sun:1362}]},
-  };
-  const PEAKS=[[480,660],[1020,1200]];
-  const inPeak=m=>PEAKS.some(([a,b])=>m>=a&&m<b);
-  function headway(color,m,day){
-    const Y=color==="yellow",wkday=day==="wk"||day==="mon";
-    if(day==="sun")return {h:Y?12:10,band:"Sunday"};
-    if(m<420)return {h:15,band:"Early morning"};
-    if(m<480)return {h:10,band:"Morning"};
-    if(inPeak(m))return {h:Y?(wkday?8:10):(wkday?7:8),band:"Peak"};
-    if(m<1020)return {h:Y?11:9,band:"Off-peak"};
-    if(m<1320)return {h:Y?12:10,band:"Evening"};
-    return {h:15,band:"Late night"};
-  }
-  const dayType=dow=>dow===0?"sun":dow===6?"sat":dow===1?"mon":"wk";
-
-  function buildDay(day){
-    const trips=[];
-    routes.forEach(R=>{
-      const tt=TT[R.color];if(!tt||R.status!=="open")return;
-      for(const dir of [0,1]){
-        const i0=R.termIdx[dir],i1=R.termIdx[1-dir];
-        const first=tt.first[day]*60,last=tt.last[dir][day]*60;
-        for(let t=first;t<=last;){
-          const hw=headway(R.color,t/60,day);
-          trips.push({R,dir,i0,i1,t0:t,kind:"through"});
-          const nx=t+hw.h*60;
-          t=(nx>last&&t<last)?last:nx;   // always run the published last train
-        }
-      }
-    });
-    trips.forEach((tr,k)=>{tr.id=k;const A=tr.R.arr[tr.dir],D=tr.R.dep[tr.dir];tr.base=D[tr.i0];tr.dur=A[tr.i1]-D[tr.i0];});
-    return trips;
+  /* ---- timetable: BMRCL's scheduled trips (DATA.tt, from the GTFS feed) ----
+     Each pattern lists the stops a train calls at (route stop indices, in travel order) with arrival and
+     departure offsets in seconds from its first departure. Services: weekday (Tue–Sat), monday, sunday,
+     holiday (2nd/4th Saturdays and listed dates). The service day runs 03:00 → 27:00. */
+  const TTD=DATA.tt;
+  const patterns=TTD.patterns.map(([ri,stops,arr,dep])=>{const R=routes[ri],pos=new Map();stops.forEach((s,k)=>pos.set(s,k));
+    return {R,stops,arr,dep,pos,dir:stops[stops.length-1]>stops[0]?0:1,dur:arr[arr.length-1]};});
+  routes.forEach(R=>{if(R.status!=="open")return;
+    const full=patterns.filter(P=>P.R===R).sort((a,b)=>b.stops.length-a.stops.length)[0];if(full)R.endToEnd=full.dur;});
+  const SERVICES=["weekday","monday","sunday","holiday"];
+  function serviceFor(dow,ymd){if(ymd&&TTD.dates[ymd])return TTD.dates[ymd];return dow===0?"sunday":dow===1?"monday":"weekday";}
+  const dayType=dow=>serviceFor(dow,null);
+  function buildDay(svc){
+    const list=(TTD.trips[svc]||TTD.trips.weekday).map(([pi,start],k)=>{const P=patterns[pi];
+      return {id:k,P,R:P.R,dir:P.dir,i0:P.stops[0],i1:P.stops[P.stops.length-1],t0:start,dur:P.dur,
+        full:P.stops.length===P.R.stops.length};});
+    return list;
   }
   const dayCache={};
-  const tripsFor=day=>dayCache[day]||(dayCache[day]=buildDay(day));
+  const tripsFor=svc=>dayCache[svc]||(dayCache[svc]=buildDay(svc));
+  /* first and last departure of a line on a service day */
+  function firstLast(color,svc){const ts=tripsFor(svc).filter(tr=>tr.R.color===color).map(tr=>tr.t0);return ts.length?[Math.min(...ts),Math.max(...ts)]:null;}
+  /* typical gap between trains in one direction at the line's middle station around time m (minutes) */
+  const PEAKS=[[480,660],[1020,1200]];
+  function headway(color,m,svc){
+    const R=routes.find(r=>r.color===color),mid=Math.floor(R.stops.length/2),t=m*60;
+    const ts=tripsFor(svc).filter(tr=>tr.R===R&&tr.dir===0&&tr.P.pos.has(mid)).map(tr=>tr.t0+tr.P.dep[tr.P.pos.get(mid)]).filter(x=>x>t-1800&&x<t+1800).sort((a,b)=>a-b);
+    const gaps=[];for(let k=1;k<ts.length;k++)gaps.push(ts[k]-ts[k-1]);gaps.sort((a,b)=>a-b);
+    const h=gaps.length?Math.max(1,Math.round(gaps[Math.floor(gaps.length/2)]/60)):null;
+    const band=svc==="sunday"?"Sunday":svc==="holiday"?"Holiday":m<420?"Early morning":PEAKS.some(([a,b])=>m>=a&&m<b)?"Peak":m<1020?"Off-peak":m<1320?"Evening":"Late night";
+    return {h,band};
+  }
 
+  /* motion between two stops: accelerate, cruise, brake, fitted to the scheduled running time T over distance d */
+  function moveAlong(d,T,u){
+    const x=Math.max(0,Math.min(1,u/T)),a=.22,vmax=1/(1-a);   // 22% accelerating, 56% cruising, 22% braking
+    let f;if(x<a)f=.5*vmax*x*x/a;else if(x<1-a)f=.5*vmax*a+vmax*(x-a);else{const r=1-x;f=1-.5*vmax*r*r/a;}
+    const v=(x<a?vmax*x/a:x<1-a?vmax:vmax*(1-x)/a)*d/T;
+    return [f*d,v];
+  }
   /* state of a trip at service-day second t */
   const LAY_BEFORE=150,LAY_AFTER=90;   // seconds a train stands at the terminus platform before departing / after arriving
   function tripState(tr,t){
-    const tau=t-tr.t0;
-    if(tau<0){if(tau<-LAY_BEFORE)return null;return {ch:tr.R.stops[tr.i0].ch,v:0,at:tr.i0,next:tr.i0+(tr.dir?-1:1),layover:"departing"};}
-    if(tau>tr.dur){if(tau>tr.dur+LAY_AFTER)return null;return {ch:tr.R.stops[tr.i1].ch,v:0,at:tr.i1,next:tr.i1,layover:"arrived"};}
-    const R=tr.R,A=R.arr[tr.dir],D=R.dep[tr.dir],T=tau+tr.base,step=tr.dir?-1:1;
-    for(let i=tr.i0;i!==tr.i1;i+=step){
-      if(T<=D[i]&&i!==tr.i0)return {ch:R.stops[i].ch,v:0,at:i,next:i};
-      const j=i+step;
-      if(T<A[j]){const seg=R.seg[Math.min(i,j)],[s,v]=runPos(seg.d,T-D[i]);
-        return {ch:R.stops[i].ch+step*s,v,at:-1,next:j,prev:i};}
-      if(j===tr.i1)return {ch:R.stops[j].ch,v:0,at:j,next:j};
+    const tau=t-tr.t0,P=tr.P,R=tr.R,n=P.stops.length;
+    if(tau<0){if(tau<-LAY_BEFORE)return null;return {ch:R.stops[tr.i0].ch,v:0,at:tr.i0,next:P.stops[1],layover:"departing"};}
+    if(tau>tr.dur){if(tau>tr.dur+LAY_AFTER)return null;return {ch:R.stops[tr.i1].ch,v:0,at:tr.i1,next:tr.i1,layover:"arrived"};}
+    for(let k=0;k<n;k++){
+      if(tau<=P.dep[k]&&tau>=P.arr[k])return {ch:R.stops[P.stops[k]].ch,v:0,at:P.stops[k],next:k<n-1?P.stops[k+1]:P.stops[k]};
+      if(k<n-1&&tau<P.arr[k+1]){const a=R.stops[P.stops[k]].ch,b=R.stops[P.stops[k+1]].ch,[s,v]=moveAlong(Math.abs(b-a),P.arr[k+1]-P.dep[k],tau-P.dep[k]);
+        return {ch:a+Math.sign(b-a)*s,v,at:-1,next:P.stops[k+1],prev:P.stops[k]};}
     }
     return {ch:R.stops[tr.i1].ch,v:0,at:tr.i1,next:tr.i1};
   }
-  const timeAtStop=(tr,i)=>tr.t0+tr.R.arr[tr.dir][i]-tr.base;
-  const depAtStop=(tr,i)=>tr.t0+tr.R.dep[tr.dir][i]-tr.base;
-  const serves=(tr,i)=>tr.dir?(i<=tr.i0&&i>=tr.i1):(i>=tr.i0&&i<=tr.i1);
+  const timeAtStop=(tr,i)=>tr.t0+tr.P.arr[tr.P.pos.get(i)];
+  const depAtStop=(tr,i)=>tr.t0+tr.P.dep[tr.P.pos.get(i)];
+  const serves=(tr,i)=>tr.P.pos.has(i);
 
   function departures(st,day,t,count=3){ // next departures at a stop, per direction
-    const R=st.route,i=st.idx,out=[[],[]];
+    const R=st.route,i=st.idx,out=[[],[]],all=[[],[]];
     for(const tr of tripsFor(day)){if(tr.R!==R||!serves(tr,i)||i===tr.i1)continue;
-      const dt=depAtStop(tr,i);if(dt>=t)out[tr.dir].push({t:dt,tr});}
+      const dt=depAtStop(tr,i);all[tr.dir].push(dt);if(dt>=t)out[tr.dir].push({t:dt,tr});}
     out.forEach(a=>a.sort((x,y)=>x.t-y.t));
-    const lastFirst=[0,1].map(dir=>{const ts=tripsFor(day).filter(tr=>tr.R===R&&tr.dir===dir&&serves(tr,i)&&i!==tr.i1).map(tr=>depAtStop(tr,i));
-      return ts.length?[Math.min(...ts),Math.max(...ts)]:null;});
-    return {next:out.map(a=>a.slice(0,count)),span:lastFirst};
+    return {next:out.map(a=>a.slice(0,count)),span:all.map(ts=>ts.length?[Math.min(...ts),Math.max(...ts)]:null)};
   }
 
   /* IST clock: service day starts 03:00 IST */
   function istNow(ms=Date.now()){
     const d=new Date(ms+5.5*3600e3);let sec=d.getUTCHours()*3600+d.getUTCMinutes()*60+d.getUTCSeconds()+d.getUTCMilliseconds()/1000;
     let dow=d.getUTCDay();if(sec<3*3600){sec+=86400;dow=(dow+6)%7;}
-    return {sec,dow,date:new Date(ms+5.5*3600e3-(sec>=86400?86400e3:0))};
+    const date=new Date(ms+5.5*3600e3-(sec>=86400?86400e3:0)),ymd=date.toISOString().slice(0,10).replace(/-/g,"");
+    return {sec,dow,date,ymd};
   }
 
   /* journey planner: fewest-minutes path over open lines, then timed against the real trip list */
@@ -181,6 +174,6 @@ function MetroEngine(DATA){
     return real;
   }
 
-  return {toXY,toLL,routes,byColor,feats,META,height,pointAt,tripsFor,tripState,timeAtStop,depAtStop,departures,headway,dayType,istNow,TT,DWELL,VMAX,plan,serves};
+  return {toXY,toLL,routes,byColor,feats,META,height,pointAt,tripsFor,tripState,timeAtStop,depAtStop,departures,headway,dayType,serviceFor,firstLast,SERVICES,istNow,DWELL,VMAX,plan,serves,source:DATA.source};
 }
 if(typeof module!=="undefined")module.exports=MetroEngine;
