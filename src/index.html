@@ -187,11 +187,11 @@ select{font:500 12.5px var(--f-body);padding:7px 8px;border:1px solid var(--rule
 .grid3 i::before,.grid3 i::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--a);box-shadow:11px 0 0 var(--b)}
 .grid3 i::after{background:var(--c);box-shadow:none;margin-left:11px}
 .swrow{display:flex;justify-content:space-between;align-items:center;font-size:13px;gap:10px}
-.sw{all:unset;cursor:pointer;width:34px;height:20px;border-radius:99px;background:var(--rule);position:relative;flex:none}
-.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--panel-solid);box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
-.sw[aria-checked="true"]{background:#2f7fe8}
-.sw[aria-checked="true"]::after{left:16px}
-.sw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tg{all:unset;cursor:pointer;width:34px;height:20px;border-radius:99px;background:var(--rule);position:relative;flex:none}
+.tg::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--panel-solid);box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.tg[aria-checked="true"]{background:#2f7fe8}
+.tg[aria-checked="true"]::after{left:16px}
+.tg:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 /* toasts, ride HUD, tour caption */
 #toast{position:fixed;top:calc(74px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--panel-solid);padding:8px 14px;border-radius:9px;font-size:12.5px;z-index:8;white-space:nowrap;box-shadow:var(--shadow)}
 #toast b{color:var(--c,inherit)}
@@ -327,9 +327,9 @@ body.photo #top,body.photo #drawer,body.photo #card,body.photo #dockwrap,body.ph
       <button data-th="vivid" aria-pressed="false"><i style="--a:#ff4d4d;--b:#38c96b;--c:#3a7bff"></i>Vivid</button>
     </div></div>
   <div class="sect"><span class="eyebrow">View</span>
-    <div class="swrow">Satellite<button class="sw" id="sw-sat" role="switch" aria-checked="false" aria-label="Satellite"></button></div>
-    <div class="swrow">Place labels<button class="sw" id="sw-places" role="switch" aria-checked="true" aria-label="Place labels"></button></div>
-    <div class="swrow">Points of interest<button class="sw" id="sw-poi" role="switch" aria-checked="false" aria-label="Points of interest"></button></div>
+    <div class="swrow">Satellite<button class="tg" id="sw-sat" role="switch" aria-checked="false" aria-label="Satellite"></button></div>
+    <div class="swrow">Place labels<button class="tg" id="sw-places" role="switch" aria-checked="true" aria-label="Place labels"></button></div>
+    <div class="swrow">Points of interest<button class="tg" id="sw-poi" role="switch" aria-checked="false" aria-label="Points of interest"></button></div>
   </div>
   <div class="sect"><span class="eyebrow">Metro</span>
     <label class="field" for="tsz">Train size<input id="tsz" type="range" min="1" max="8" step="0.5" value="3"><output id="tszv">3×</output></label>
