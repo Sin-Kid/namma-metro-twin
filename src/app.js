@@ -149,6 +149,50 @@ const RN=2500,rainPos=new Float32Array(RN*6),rainGeo=new THREE.BufferGeometry();
 const rainLines=new THREE.LineSegments(rainGeo,new THREE.LineBasicMaterial({transparent:true,opacity:.5}));rainLines.frustumCulled=false;rainLines.visible=false;scene.add(rainLines);
 const drops=[];for(let i=0;i<RN;i++)drops.push([rng()*2-1,rng(),rng()*2-1]);
 
+
+/* ---------- detailed train model (Shanghai Metro Line 6 AC04 by zengwish, CGTrader; converted by scripts/build_train.py) ----------
+   Painted in the shader by part, using the car's own coordinates: dark underframe, silver body, Namma Metro line-colour band,
+   tinted window band and windscreen, light roof. Used for trains near the view; far trains keep the simple box cars. */
+const MODEL_R=1600;                 // metres from the view centre within which trains use the detailed model
+const trainU={uNight:{value:0}};
+function paintMaterial(isCab){
+  const m=new THREE.MeshStandardMaterial({roughness:.42,metalness:.35,flatShading:true});
+  m.onBeforeCompile=sh=>{
+    sh.uniforms.uNight=trainU.uNight;sh.uniforms.uCab={value:isCab?1:0};
+    sh.vertexShader="varying vec3 vMP;\nvarying vec3 vMN;\n"+sh.vertexShader.replace("#include <begin_vertex>","#include <begin_vertex>\nvMP=position;vMN=normal;");
+    sh.fragmentShader="varying vec3 vMP;\nvarying vec3 vMN;\nuniform float uNight;\nuniform float uCab;\n"+sh.fragmentShader
+      .replace("#include <color_fragment>",`
+        vec3 lineC=vec3(.55,.3,.7);
+        #if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
+          lineC=vColor.rgb;
+        #endif
+        vec3 an=abs(normalize(vMN));float y=vMP.y;float glassF=0.;
+        vec3 paint=vec3(.86,.88,.9);
+        bool side=an.x>.55,front=an.z>.55&&uCab>.5&&vMP.z>9.4;
+        if(y<.95) paint=vec3(.2,.21,.23);
+        else if((side&&y>1.70&&y<2.62)||(front&&y>1.55&&y<3.25)){paint=vec3(.09,.12,.16);glassF=1.;}
+        else if(y>1.23&&y<1.57) paint=lineC;
+        else if(front&&y>1.0&&y<1.5) paint=mix(lineC,vec3(.95),.15);
+        else if(y>3.45) paint=vec3(.72,.74,.77);
+        diffuseColor.rgb=paint;`)
+      .replace("#include <emissivemap_fragment>","#include <emissivemap_fragment>\n totalEmissiveRadiance+=vec3(1.,.86,.62)*glassF*uNight*.7;");
+  };
+  m.customProgramCacheKey=()=>"nm-train-"+(isCab?1:0);
+  return m;
+}
+const model={ready:false,cab:null,mid:null,cabTrip:[],midTrip:[]};
+fetch("train.bin").then(r=>r.ok?r.arrayBuffer():Promise.reject(r.status)).then(buf=>{
+  const dv=new DataView(buf);if(String.fromCharCode(...new Uint8Array(buf,0,4))!=="NMTR")throw new Error("bad model");
+  let o=8;const geos=[];
+  for(let c=0;c<2;c++){const nv=dv.getUint32(o,true),nt=dv.getUint32(o+4,true);o+=8;
+    const pos=new Float32Array(buf.slice(o,o+nv*12));o+=nv*12;
+    const idx=nv<65536?new Uint16Array(buf.slice(o,o+nt*6)):new Uint32Array(buf.slice(o,o+nt*12));o+=idx.byteLength;if(o%4)o+=4-o%4;
+    const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(pos,3));g.setIndex(new THREE.BufferAttribute(idx,1));g.computeVertexNormals();geos.push(g);}
+  model.cab=new THREE.InstancedMesh(geos[0],paintMaterial(true),2*160);model.mid=new THREE.InstancedMesh(geos[1],paintMaterial(false),4*160);
+  [model.cab,model.mid].forEach(m=>{m.count=0;m.frustumCulled=false;m.setColorAt(0,new THREE.Color());twin.add(m);});
+  model.ready=true;
+}).catch(()=>{});   // without the file the simple box trains stay in use
+
 /* ---------- placement ---------- */
 let selected=null,selTrip=null,showCrowds=true,trainScale=3,mode="orbit",active=[];
 const shown=st=>visible[st.route.color];
@@ -204,22 +248,29 @@ syncLive();
 /* ---------- trains ---------- */
 const carTrip=new Array(MAXCARS);
 function placeTrains(){
-  const trips=E.tripsFor(dayKey()),t=clock.sec,riding=mode==="ride",w=wideU.value,lk=riding?1:lenK,ts=riding?1:trainScale,cs=CAR*lk*ts;let n=0;active=[];
-  const body=col("silver");
+  const trips=E.tripsFor(dayKey()),t=clock.sec,riding=mode==="ride",w=wideU.value,lk=riding?1:lenK,ts=riding?1:trainScale,cs=CAR*lk*ts;let n=0,nc=0,nm=0;active=[];
+  const body=col("silver"),useModel=model.ready;
+  // view centre in local metres: the ride/VR viewer, else the map centre
+  let vx,vz;if(riding&&ride&&ride.pos){vx=ride.pos.x;vz=ride.pos.z;}else{const c=map.getCenter();[vx,vz]=llToLocal(c.lng,c.lat);}
   for(const tr of trips){
     if(!visible[tr.R.color])continue;
     const st=E.tripState(tr,t);if(!st)continue;active.push({tr,st});
     const R=tr.R,sg=tr.dir?-1:1,band=new THREE.Color(T[R.color]);
-    for(let k=0;k<6&&n<MAXCARS;k++){
+    const c0=at(R,st.ch),near=useModel&&Math.hypot(c0.X-vx,c0.Z-vz)<MODEL_R*Math.max(1,lk);
+    for(let k=0;k<6;k++){
       const s=st.ch+sg*(TRAIN*lk*ts/2-(k+.5)*cs),p=at(R,Math.max(0,Math.min(R.len,s))),h2=E.height(R,s+sg*8);
       const tx=sg*p.dx,tz=sg*p.dz,off=2.1*w,slope=(h2-p.h)/8;
-      Q.setFromAxisAngle(UP,Math.atan2(tx,tz));Q2.setFromAxisAngle(AX,-Math.atan(slope));Q.multiply(Q2);
+      Q.setFromAxisAngle(UP,Math.atan2(tx,tz)+(near&&k===5?Math.PI:0));Q2.setFromAxisAngle(AX,(near&&k===5?1:-1)*Math.atan(slope));Q.multiply(Q2);
       M.compose(V.set(p.X+tz*off,p.h,p.Z-tx*off),Q,S.set(w,ts,lk*ts));
-      carM.setMatrixAt(n,M);carM.setColorAt(n,body);bandM.setMatrixAt(n,M);bandM.setColorAt(n,band);carTrip[n]=tr;n++;
+      if(near){const cab=k===0||k===5,mesh=cab?model.cab:model.mid,i=cab?nc++:nm++;
+        if(i<mesh.instanceMatrix.count){mesh.setMatrixAt(i,M);mesh.setColorAt(i,band);(cab?model.cabTrip:model.midTrip)[i]=tr;}}
+      else if(n<MAXCARS){carM.setMatrixAt(n,M);carM.setColorAt(n,body);bandM.setMatrixAt(n,M);bandM.setColorAt(n,band);carTrip[n]=tr;n++;}
     }
   }
   carM.count=bandM.count=n;carM.instanceMatrix.needsUpdate=bandM.instanceMatrix.needsUpdate=true;
   if(carM.instanceColor){carM.instanceColor.needsUpdate=true;bandM.instanceColor.needsUpdate=true;}
+  if(useModel){model.cab.count=Math.min(nc,2*160);model.mid.count=Math.min(nm,4*160);
+    [model.cab,model.mid].forEach(m=>{m.instanceMatrix.needsUpdate=true;if(m.instanceColor)m.instanceColor.needsUpdate=true;});}
 }
 const trainPos=tr=>{const st=E.tripState(tr,clock.sec);if(!st)return null;const p=at(tr.R,st.ch);return {st,p,ll:localToLL(p.X,p.Z)};};
 
@@ -454,7 +505,7 @@ function updateLight(){
 }
   const h=(clock.sec/3600)%24,day=p==="night"?0:p==="day"?1:.5,wl={clear:1,haze:.8,rain:.6,storm:.45}[weather];
   sun.intensity=(.25+.7*day)*wl;hemi.intensity=(.45+.4*day)*(.6+.4*wl);
-  const night=p==="night"?1:p==="day"?0:.5;roofMat.emissive.set(T.lamp).multiplyScalar(.45*night);carMat.emissive.set(T.lamp).multiplyScalar(.25*night);
+  const night=p==="night"?1:p==="day"?0:.5;roofMat.emissive.set(T.lamp).multiplyScalar(.45*night);carMat.emissive.set(T.lamp).multiplyScalar(.25*night);trainU.uNight.value=night;
 }
 const WX={clear:null,haze:{range:[.6,6],color:"#c9c6bd","horizon-blend":.25},rain:{range:[.4,4],color:"#9aa3ad","horizon-blend":.3},storm:{range:[.2,2.5],color:"#6f7782","horizon-blend":.4}};
 function applyWeather(){
