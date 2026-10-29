@@ -108,7 +108,8 @@ const box=()=>{const g=new THREE.BoxGeometry(1,1,1);g.translate(0,.5,0);return g
 const stops=routes.flatMap(R=>R.stops);
 stops.forEach(st=>{st.p=at(st.route,st.ch);st.ang=Math.atan2(st.p.dx,st.p.dz);});
 const elev=stops.filter(st=>!st.under),ug=stops.filter(st=>st.under);
-const roofMat=new THREE.MeshStandardMaterial({roughness:.5,emissive:new THREE.Color(0),side:THREE.DoubleSide});
+/* translucent glass canopy, so the platforms, edge strips, crowds and trains show through from above */
+const roofMat=new THREE.MeshStandardMaterial({roughness:.2,metalness:.1,emissive:new THREE.Color(0),side:THREE.DoubleSide,transparent:true,opacity:.38,depthWrite:false});
 const concMat=new THREE.MeshStandardMaterial({roughness:.8}),platMat=new THREE.MeshStandardMaterial({roughness:.7});
 const ugMat=new THREE.MeshStandardMaterial({roughness:.6,transparent:true,opacity:.8});
 const roofM=new THREE.InstancedMesh(box(),roofMat,elev.length),concM=new THREE.InstancedMesh(box(),concMat,elev.length);
@@ -697,5 +698,5 @@ map.on("load",()=>{$("#load")&&$("#load").remove();
   const fromHash=stations.find(s=>s.slug===location.hash.slice(1));if(fromHash)selectStation(fromHash);});
 map.on("error",e=>{const msg=e&&e.error&&e.error.message||"";if(/token|401|403|Unauthorized|Forbidden/i.test(msg)){const l=$("#load");if(l){l.textContent="The Mapbox token was rejected. Check that it's valid and allowed for this site.";}else toast("Mapbox token rejected for this site",6000);}});
 addEventListener("hashchange",()=>{const s=stations.find(s=>s.slug===location.hash.slice(1));if(s&&s!==selected)selectStation(s);});
-window.__twin={map,E,setMode,startRide,nearestTrain};
+window.__twin={map,E,setMode,startRide,nearestTrain,roofMat,platM,edgeM};
 })();
