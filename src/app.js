@@ -26,6 +26,23 @@ const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Q2=new THREE.Quaternion(),V
 mapboxgl.accessToken=window.MAPBOX_TOKEN||"";
 if(!mapboxgl.accessToken){$("#load").textContent="No Mapbox token configured. Set MAPBOX_TOKEN in .env (local) or in Netlify environment variables.";return;}
 const HOME={center:[77.605,12.968],zoom:11.4,pitch:40,bearing:-12};
+/* metro area: every line (open and under construction) and station, buffered by AREA_PAD metres, as a convex outline.
+   Outside it the map is dimmed and the camera can't wander off. */
+const AREA_PAD=1500;
+const AREA=(()=>{const k=Math.cos(12.97*Math.PI/180),R=AREA_PAD/111320,pts=[];
+  const add=(lo,la)=>{for(let i=0;i<16;i++){const a=i*Math.PI/8;pts.push([lo+R*Math.cos(a)/k,la+R*Math.sin(a)]);}};
+  DATA.routes.forEach(r=>r.c.forEach((p,i)=>{if(i%3===0||i===r.c.length-1)add(p[0],p[1]);}));
+  DATA.feats.forEach(f=>add(f[1],f[2]));
+  pts.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  const cr=(o,a,b)=>((a[0]-o[0])*k)*(b[1]-o[1])-(a[1]-o[1])*((b[0]-o[0])*k),lo=[],up=[];
+  for(const p of pts){while(lo.length>1&&cr(lo[lo.length-2],lo[lo.length-1],p)<=0)lo.pop();lo.push(p);}
+  for(let i=pts.length-1;i>=0;i--){const p=pts[i];while(up.length>1&&cr(up[up.length-2],up[up.length-1],p)<=0)up.pop();up.push(p);}
+  const hull=lo.slice(0,-1).concat(up.slice(0,-1));hull.push(hull[0]);
+  let w=180,s=90,e=-180,n=-90;hull.forEach(([x,y])=>{w=Math.min(w,x);e=Math.max(e,x);s=Math.min(s,y);n=Math.max(n,y);});
+  const mx=(e-w)*.25,my=(n-s)*.25;
+  return {hull,bounds:[[w-mx,s-my],[e+mx,n+my]]};
+})();
+let areaOnly=true;
 const CITY={center:[77.5965,12.9748],zoom:14.6,pitch:62,bearing:-28};
 /* basemap look, as in Mapbox's Standard style demo: lighting presets, colour themes and label toggles.
    Default, Faded and Mono are built into the style; Warm, Ocean and Vivid are colour-grading tables (LUTs) made here. */
@@ -46,6 +63,7 @@ const baseConfig=preset=>{const c={lightPreset:preset,showPointOfInterestLabels:
   show3dBuildings:true,show3dFacades:true,show3dTrees:true,show3dLandmarks:true,show3dObjects:!xray};
   if(GRADES[theme]){c.theme="custom";c["theme-data"]=lutData(theme);}else c.theme=theme;return c;};
 const map=new mapboxgl.Map({container:"stage",style:"mapbox://styles/mapbox/standard",...HOME,maxPitch:85,antialias:true,attributionControl:false,
+  maxBounds:AREA.bounds,minZoom:9.5,
   config:{basemap:baseConfig("day")}});
 map.addControl(new mapboxgl.AttributionControl({compact:true}),"bottom-left");
 
@@ -352,6 +370,14 @@ function routeGeo(){return {type:"FeatureCollection",features:routes.map(R=>({ty
 function stationGeo(){return {type:"FeatureCollection",features:stations.map(f=>({type:"Feature",id:stations.indexOf(f),properties:{name:f.name.replace(/ \(.*\)/,""),slug:f.slug,color:T[f.colors[0]],ix:f.ix?1:0,term:f.terminal?1:0,vis:f.routes.some(shown)?1:0},
   geometry:{type:"Point",coordinates:[f.lon,f.lat]}}))};}
 function addLayers(){
+  if(!map.getSource("area"))map.addSource("area",{type:"geojson",data:{type:"FeatureCollection",features:[
+    {type:"Feature",properties:{},geometry:{type:"Polygon",coordinates:[[[-179,-85],[179,-85],[179,85],[-179,85],[-179,-85]],AREA.hull.slice().reverse()]}},
+    {type:"Feature",properties:{edge:1},geometry:{type:"LineString",coordinates:AREA.hull}}]}});
+  if(!map.getLayer("area-mask"))map.addLayer({id:"area-mask",type:"fill",source:"area",slot:"top",filter:["!",["has","edge"]],
+    layout:{visibility:areaOnly?"visible":"none"},paint:{"fill-color":"#0e1522","fill-opacity":.62,"fill-emissive-strength":1}});
+  if(!map.getLayer("area-edge"))map.addLayer({id:"area-edge",type:"line",source:"area",slot:"top",filter:["has","edge"],
+    layout:{visibility:areaOnly?"visible":"none","line-join":"round"},paint:{"line-color":"#a46ad8","line-width":["interpolate",["linear"],["zoom"],10,1.6,15,3],
+      "line-opacity":.9,"line-dasharray":[3,2],"line-emissive-strength":1}});
   if(!map.getSource("routes")){map.addSource("routes",{type:"geojson",data:routeGeo()});map.addSource("stations",{type:"geojson",data:stationGeo()});}
   const fade=["interpolate",["linear"],["zoom"],13.4,1,14.6,0];
   if(!map.getLayer("route-glow"))map.addLayer({id:"route-glow",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
@@ -592,6 +618,8 @@ swTog("#sw-sat",()=>satellite,v=>{satellite=v;curPreset="";
   map.setStyle(satellite?"mapbox://styles/mapbox/standard-satellite":"mapbox://styles/mapbox/standard",{config:{basemap:satellite?{lightPreset:presetFor(),showPointOfInterestLabels:showPOI,showPlaceLabels:showPlaces,showTransitLabels:false}:baseConfig(presetFor())}});
   $("#themegrp").classList.toggle("off",satellite);});
 swTog("#sw-places",()=>showPlaces,v=>{showPlaces=v;try{map.setConfigProperty("basemap","showPlaceLabels",v);}catch(e){}});
+swTog("#sw-area",()=>areaOnly,v=>{areaOnly=v;["area-mask","area-edge"].forEach(l=>map.getLayer(l)&&map.setLayoutProperty(l,"visibility",v?"visible":"none"));
+  map.setMaxBounds(v?AREA.bounds:null);map.setMinZoom(v?9.5:0);});
 swTog("#sw-poi",()=>showPOI,v=>{showPOI=v;try{map.setConfigProperty("basemap","showPointOfInterestLabels",v);}catch(e){}});
 $("#tilt").onclick=()=>{setMode("orbit");map.easeTo({pitch:map.getPitch()<5?60:0,duration:reduce?0:800});};
 
