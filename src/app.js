@@ -26,8 +26,18 @@ const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Q2=new THREE.Quaternion(),V
 mapboxgl.accessToken=window.MAPBOX_TOKEN||"";
 if(!mapboxgl.accessToken){$("#load").textContent="No Mapbox token configured. Set MAPBOX_TOKEN in .env (local) or in Netlify environment variables.";return;}
 const HOME={center:[77.605,12.965],zoom:11.3,pitch:58,bearing:-18};
+/* basemap palettes: "vivid" recolours Mapbox Standard; "classic" keeps Mapbox defaults */
+const VIVID={colorLand:"#fff6ee",colorWater:"#2bb3ff",colorGreenspace:"#3fd27a",colorBuildings:"#ffd7c2",colorCommercial:"#ffd0e4",colorEducation:"#ffe27a",
+  colorMedical:"#ffb3b3",colorIndustrial:"#d4cbff",colorMotorways:"#ff8a3d",colorTrunks:"#ffb43d",colorRoads:"#ffffff",show3dTrees:true,show3dLandmarks:true,show3dFacades:true};
+let palette="vivid";
+const baseConfig=preset=>({lightPreset:preset,showPointOfInterestLabels:false,showTransitLabels:false,...(palette==="vivid"?VIVID:{})});
+/* sky colours per light preset (used when the weather is clear) */
+const SKY={dawn:{color:"#ffc7a8","high-color":"#8a6bff","horizon-blend":.14,"space-color":"#2a2466","star-intensity":.1},
+  day:{color:"#ffe2cf","high-color":"#4f8dff","horizon-blend":.1,"space-color":"#1c3a8a","star-intensity":0},
+  dusk:{color:"#ff9d7a","high-color":"#6a3fb5","horizon-blend":.16,"space-color":"#24124a","star-intensity":.2},
+  night:{color:"#2a2f5a","high-color":"#0f1440","horizon-blend":.12,"space-color":"#05061a","star-intensity":.6}};
 const map=new mapboxgl.Map({container:"stage",style:"mapbox://styles/mapbox/standard",...HOME,maxPitch:85,antialias:true,attributionControl:false,
-  config:{basemap:{lightPreset:"day",showPointOfInterestLabels:false,showTransitLabels:false}}});
+  config:{basemap:baseConfig("day")}});
 map.addControl(new mapboxgl.AttributionControl({compact:true}),"bottom-left");
 
 /* local metric frame anchored at Majestic: x east, z south, y up, in metres, exact in Web Mercator */
@@ -73,7 +83,7 @@ function buildDeck(R){
 }
 function colourDecks(){
   const c=new THREE.Color(),line=new THREE.Color(),bed=new THREE.Color(),con=col("concrete"),tun=col("tunnel");
-  decks.forEach(({R,g,part,under})=>{line.set(T[R.color]);bed.copy(line).lerp(col("ballast"),.45);
+  decks.forEach(({R,g,part,under})=>{line.set(T[R.color]);bed.copy(line).lerp(col("ballast"),.25);
     if(R.status!=="open"){line.lerp(con,.35);bed.lerp(con,.5);}
     const a=g.attributes.color;
     for(let i=0;i<part.length;i++){if(under[i])c.copy(line).lerp(tun,.3);else c.copy(part[i]===0?line:part[i]===1?con:bed);a.setXYZ(i,c.r,c.g,c.b);}
@@ -150,7 +160,7 @@ function placeStatic(){
 }
 function colourStatic(){
   pierMat.color.set(T.concrete);pierGhost.color.set(T.concrete);concMat.color.set(T.concrete);platMat.color.set(T.silver);ugMat.color.set(T.tunnel);
-  elev.forEach((st,i)=>roofM.setColorAt(i,st.f.ix?col("ink"):C.set(T[st.route.color]).lerp(col("concrete"),st.route.status==="open"?.4:.6)));
+  elev.forEach((st,i)=>roofM.setColorAt(i,st.f.ix?col("ink"):C.set(T[st.route.color]).lerp(col("concrete"),st.route.status==="open"?.12:.5)));
   ug.forEach((st,i)=>ugM.setColorAt(i,C.set(T[st.route.color]).lerp(col("tunnel"),.45)));
   roofM.instanceColor.needsUpdate=true;ugM.instanceColor.needsUpdate=true;crowdM.material.color.set(T.person);rainLines.material.color.set(T.rain);
 }
@@ -214,13 +224,19 @@ function stationGeo(){return {type:"FeatureCollection",features:stations.map(f=>
   geometry:{type:"Point",coordinates:[f.lon,f.lat]}}))};}
 function addLayers(){
   if(!map.getSource("routes")){map.addSource("routes",{type:"geojson",data:routeGeo()});map.addSource("stations",{type:"geojson",data:stationGeo()});}
+  const fade=["interpolate",["linear"],["zoom"],13.5,1,16.5,0];
+  if(!map.getLayer("route-glow"))map.addLayer({id:"route-glow",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
+    paint:{"line-color":["get","color"],"line-width":["interpolate",["linear"],["zoom"],10,14,14,22],"line-blur":["interpolate",["linear"],["zoom"],10,8,14,14],
+      "line-opacity":["interpolate",["linear"],["zoom"],10,.45,13.5,.35,16.5,0]}});
+  if(!map.getLayer("route-casing"))map.addLayer({id:"route-casing",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
+    paint:{"line-color":"#ffffff","line-width":["interpolate",["linear"],["zoom"],10,6.5,14,10],"line-opacity":fade}});
   if(!map.getLayer("route-lines"))map.addLayer({id:"route-lines",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
-    paint:{"line-color":["get","color"],"line-width":["interpolate",["linear"],["zoom"],10,2.5,14,4,17,2],"line-opacity":["interpolate",["linear"],["zoom"],12,.95,15,.35,17,0],
+    paint:{"line-color":["get","color"],"line-width":["interpolate",["linear"],["zoom"],10,4,14,6.5],"line-opacity":fade,
       "line-dasharray":["case",["==",["get","open"],1],["literal",[1,0]],["literal",[2,1.5]]]}});
   if(!map.getLayer("metro-3d"))map.addLayer(metroLayer,undefined);
   if(!map.getLayer("st-dots"))map.addLayer({id:"st-dots",type:"circle",source:"stations",slot:"top",filter:["==",["get","vis"],1],
-    paint:{"circle-radius":["interpolate",["linear"],["zoom"],10,["case",["==",["get","ix"],1],4.5,2.6],15,["case",["==",["get","ix"],1],8,5]],
-      "circle-color":["case",["==",["get","ix"],1],"#ffffff",["get","color"]],"circle-stroke-color":["case",["==",["get","ix"],1],"#18202b","#ffffff"],"circle-stroke-width":1.6,
+    paint:{"circle-radius":["interpolate",["linear"],["zoom"],10,["case",["==",["get","ix"],1],5.5,3.4],15,["case",["==",["get","ix"],1],9,6]],
+      "circle-color":["case",["==",["get","ix"],1],"#ffffff",["get","color"]],"circle-stroke-color":["case",["==",["get","ix"],1],"#18202b","#ffffff"],"circle-stroke-width":2.2,
       "circle-opacity":["interpolate",["linear"],["zoom"],14,1,16.5,0],"circle-stroke-opacity":["interpolate",["linear"],["zoom"],14,1,16.5,0]}});
   if(!map.getLayer("st-labels"))map.addLayer({id:"st-labels",type:"symbol",source:"stations",slot:"top",filter:["==",["get","vis"],1],
     layout:{"text-field":["get","name"],"text-size":["interpolate",["linear"],["zoom"],10,10.5,15,13],"text-font":["DIN Pro Medium","Arial Unicode MS Regular"],
@@ -245,7 +261,7 @@ routes.forEach(R=>{
   d.innerHTML=`<span class="sw${open?"":" ghost"}"></span><span><b>${R.name}</b><small>${esc(R.term[0])} – ${esc(R.term[1])}</small><span class="now" id="now-${R.color}"></span></span>
     <span class="num">${kmF(R.len)} km<br>${R.stops.length} stn${open?`<br>${Math.round(R.endToEnd/60)} min`:""}<br><button class="icon eye" aria-label="Show or hide ${R.name}" aria-pressed="true"><svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 9S4.5 3.5 9 3.5 16.5 9 16.5 9 13.5 14.5 9 14.5 1.5 9 1.5 9z"/><circle cx="9" cy="9" r="2.4"/></svg></button></span>`;
   d.querySelector(".eye").onclick=e=>{e.stopPropagation();visible[R.color]=!visible[R.color];groups[R.color].visible=visible[R.color];d.classList.toggle("off",!visible[R.color]);e.currentTarget.setAttribute("aria-pressed",visible[R.color]);placeStatic();refreshSources();
-    if(map.getLayer("route-lines"))map.setFilter("route-lines",["in",["get","name"],["literal",routes.filter(r=>visible[r.color]).map(r=>r.name)]]);};
+    const fl=["in",["get","name"],["literal",routes.filter(r=>visible[r.color]).map(r=>r.name)]];["route-glow","route-casing","route-lines"].forEach(l=>map.getLayer(l)&&map.setFilter(l,fl));};
   const go=()=>{const lls=R.p.map(([x,y])=>E.toLL(x,y));const b=lls.reduce((bb,c)=>bb.extend(c),new mapboxgl.LngLatBounds(lls[0],lls[0]));
     setMode("orbit");map.fitBounds(b,{padding:{top:90,bottom:150,left:narrow()?30:340,right:narrow()?30:330},pitch:50,duration:reduce?0:1500});
     toast(`<b style="color:var(--${R.color})">${R.name}</b> · ${R.stops.length} stations${open?"":" · "+(R.color==="pink"?"awaiting opening":"under construction")}`);};
@@ -399,14 +415,14 @@ function updateClockUI(){
 let lighting="auto",weather="clear",curPreset="";
 function presetFor(){const h=(clock.sec/3600)%24;return lighting!=="auto"?lighting:h<5.6||h>=19.2?"night":h<6.8?"dawn":h<17.6?"day":"dusk";}
 function updateLight(){
-  const p=presetFor();if(p!==curPreset&&map.isStyleLoaded()){curPreset=p;try{map.setConfigProperty("basemap","lightPreset",p);}catch(e){}}
+  const p=presetFor();if(p!==curPreset&&map.isStyleLoaded()){curPreset=p;try{map.setConfigProperty("basemap","lightPreset",p);}catch(e){}applyWeather();}
   const h=(clock.sec/3600)%24,day=p==="night"?0:p==="day"?1:.5,wl={clear:1,haze:.8,rain:.6,storm:.45}[weather];
   sun.intensity=(.25+.7*day)*wl;hemi.intensity=(.45+.4*day)*(.6+.4*wl);
   const night=p==="night"?1:p==="day"?0:.5;roofMat.emissive.set(T.lamp).multiplyScalar(.45*night);carMat.emissive.set(T.lamp).multiplyScalar(.25*night);
 }
 const WX={clear:null,haze:{range:[.6,6],color:"#c9c6bd","horizon-blend":.25},rain:{range:[.4,4],color:"#9aa3ad","horizon-blend":.3},storm:{range:[.2,2.5],color:"#6f7782","horizon-blend":.4}};
 function applyWeather(){
-  try{if(WX[weather])map.setFog(WX[weather]);else map.setFog(null);}catch(e){}
+  try{map.setFog(WX[weather]||(palette==="vivid"?SKY[presetFor()]:null));}catch(e){}
   rainLines.visible=weather==="rain"||weather==="storm";$$("#wx button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.w===weather));
 }
 $$("#wx button").forEach(b=>b.onclick=()=>{weather=b.dataset.w;applyWeather();updateLight();toast(`Weather: <b>${b.textContent}</b>`);});
@@ -424,7 +440,9 @@ tog("#lblbtn",()=>showLabels,v=>{showLabels=v;["st-labels"].forEach(l=>map.getLa
 let voice=true;tog("#voicebtn",()=>voice,v=>{voice=v;if(!v)try{speechSynthesis.cancel();}catch(e){}});
 let satellite=false;
 $("#satbtn").onclick=e=>{satellite=!satellite;e.currentTarget.setAttribute("aria-pressed",satellite);e.currentTarget.textContent=satellite?"Satellite":"3D city";
-  curPreset="";map.setStyle(satellite?"mapbox://styles/mapbox/standard-satellite":"mapbox://styles/mapbox/standard",{config:{basemap:{lightPreset:presetFor(),showPointOfInterestLabels:false,showTransitLabels:false}}});};
+  curPreset="";map.setStyle(satellite?"mapbox://styles/mapbox/standard-satellite":"mapbox://styles/mapbox/standard",{config:{basemap:satellite?{lightPreset:presetFor(),showPointOfInterestLabels:false,showTransitLabels:false}:baseConfig(presetFor())}});};
+$("#palbtn").onclick=e=>{palette=palette==="vivid"?"classic":"vivid";e.currentTarget.textContent=palette==="vivid"?"Vivid":"Classic";e.currentTarget.setAttribute("aria-pressed",palette==="vivid");
+  if(!satellite)try{map.setConfig("basemap",baseConfig(presetFor()));if(xray)map.setConfigProperty("basemap","show3dObjects",false);}catch(e){}applyWeather();toast(`Colours: <b>${palette==="vivid"?"Vivid":"Classic"}</b>`);};
 $("#lightsel").onchange=e=>{lighting=e.target.value;updateLight();};
 $("#tilt").onclick=()=>{setMode("orbit");map.easeTo({pitch:map.getPitch()<5?60:0,duration:reduce?0:800});};
 

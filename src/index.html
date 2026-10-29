@@ -16,7 +16,8 @@
   --brand:#6d2c86; --brand-ink:#ffffff; --accent:#6d2c86;
   --silver:#eef1f4; --concrete:#c7cacd; --ballast:#7d8288; --tunnel:#2a3340; --lamp:#ffd27a;
   --bldg:#cfc9bf; --bldg-2:#b9b3aa; --tree:#5f8a55; --rain:#8aa0b8; --person:#3b4452;
-  --purple:#8a3d9e; --green:#1f9a4a; --yellow:#d9a800; --pink:#d9327c; --blue:#2c79c2;
+  --purple:#9a3cd6; --green:#12b357; --yellow:#f5b800; --pink:#ff3c8e; --blue:#2e86ff;
+  --grad:linear-gradient(135deg,#7b2ff7 0%,#c13cd6 45%,#ff3c8e 100%);
   --ok:#1f8a4c; --warn:#b26b00;
   --f-display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
   --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -55,7 +56,7 @@ button{font:inherit;color:inherit}
 .eyebrow{font:500 10px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
 .btn{font:500 12.5px/1.2 var(--f-body);background:var(--tile);border:1px solid transparent;border-radius:9px;padding:8px 12px;cursor:pointer;color:var(--ink)}
 .btn:hover{border-color:var(--rule)}
-.btn.primary{background:var(--brand);color:var(--brand-ink)}
+.btn.primary{background:var(--grad);color:#fff}
 .btn.primary:hover{filter:brightness(1.08)}
 .btn[aria-pressed="true"]{background:var(--ink);color:var(--panel-solid)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -70,7 +71,7 @@ kbd{font:500 10.5px/1 var(--f-mono);padding:3px 5px;border-radius:5px;background
 /* top bar */
 #top{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));height:52px;display:grid;grid-template-columns:auto auto 1fr auto;align-items:center;gap:10px;padding:0 10px;z-index:6}
 .logo{display:flex;align-items:center;gap:10px;min-width:0}
-.badge{width:32px;height:32px;border-radius:9px;background:var(--brand);color:var(--brand-ink);display:grid;place-items:center;font:800 18px/1 var(--f-display)}
+.badge{width:32px;height:32px;border-radius:9px;background:var(--grad);color:#fff;display:grid;place-items:center;font:800 18px/1 var(--f-display)}
 .logo b{display:block;font:800 18px/1 var(--f-display);letter-spacing:.02em;text-transform:uppercase}
 .logo small{display:block;font:500 9.5px/1.2 var(--f-mono);letter-spacing:.16em;color:var(--ink-2);margin-top:2px}
 .search{justify-self:center;width:min(460px,100%);position:relative}
@@ -144,7 +145,7 @@ kbd{font:500 10.5px/1 var(--f-mono);padding:3px 5px;border-radius:5px;background
 .modes{display:flex;gap:2px;padding-right:6px;margin-right:4px;border-right:1px solid var(--rule)}
 .modes button{all:unset;cursor:pointer;padding:9px 13px;border-radius:9px;font-weight:500;font-size:13px;white-space:nowrap}
 .modes button:hover{background:var(--tile)}
-.modes button[aria-pressed="true"]{background:var(--brand);color:var(--brand-ink)}
+.modes button[aria-pressed="true"]{background:var(--grad);color:#fff}
 .tool{all:unset;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 8px;border-radius:9px;font-size:10px;color:var(--ink-2);min-width:38px}
 .tool:hover{background:var(--tile);color:var(--ink)}
 .tool[aria-pressed="true"]{background:color-mix(in srgb,var(--brand) 16%,transparent);color:var(--brand)}
@@ -291,6 +292,7 @@ body.photo #top,body.photo #drawer,body.photo #card,body.photo #dockwrap,body.ph
   <h3>View settings</h3>
   <label class="field" for="tsz">Train size<input id="tsz" type="range" min="1" max="8" step="0.5" value="3"><output id="tszv">3×</output></label>
   <div class="toggle">Base map<button class="btn" id="satbtn" aria-pressed="false">3D city</button></div>
+  <div class="toggle">Map colours<button class="btn" id="palbtn" aria-pressed="true">Vivid</button></div>
   <label class="toggle" for="lightsel">Lighting<select id="lightsel"><option value="auto">Follow the clock</option><option value="dawn">Dawn</option><option value="day">Day</option><option value="dusk">Dusk</option><option value="night">Night</option></select></label>
   <div class="toggle">Station labels<button class="btn" id="lblbtn" aria-pressed="true">On</button></div>
   <div class="toggle">Voice announcements while riding<button class="btn" id="voicebtn" aria-pressed="true">On</button></div>
