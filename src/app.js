@@ -254,7 +254,7 @@ function addLayers(){
     paint:{"circle-radius":["interpolate",["linear"],["zoom"],10,["case",["==",["get","ix"],1],5.5,3.4],15,["case",["==",["get","ix"],1],9,6]],
       "circle-color":["case",["==",["get","ix"],1],"#ffffff",["get","color"]],"circle-stroke-color":["case",["==",["get","ix"],1],"#18202b","#ffffff"],"circle-stroke-width":2.2,
       "circle-opacity":["interpolate",["linear"],["zoom"],14,1,16.5,0],"circle-stroke-opacity":["interpolate",["linear"],["zoom"],14,1,16.5,0]}});
-  if(!map.getLayer("st-labels"))map.addLayer({id:"st-labels",type:"symbol",source:"stations",slot:"top",filter:["==",["get","vis"],1],
+  if(!map.getLayer("st-labels"))map.addLayer({id:"st-labels",type:"symbol",source:"stations",slot:"top",maxzoom:14.3,filter:["==",["get","vis"],1],
     layout:{"text-field":["get","name"],"text-size":["interpolate",["linear"],["zoom"],10,10.5,15,13],"text-font":["DIN Pro Medium","Arial Unicode MS Regular"],
       "text-offset":[0,1.1],"text-anchor":"top","text-optional":true,"symbol-sort-key":["-",0,["+",["*",["get","ix"],2],["get","term"]]]},
     paint:{"text-color":"#18202b","text-halo-color":"rgba(255,255,255,.95)","text-halo-width":1.6}});
@@ -291,7 +291,7 @@ function lineStatus(){
     if(R.status!=="open"){el.innerHTML=`<span class="dot build"></span>${R.color==="pink"?"Awaiting opening":"Under construction"}`;return;}
     const tt=E.TT[R.color],first=tt.first[day]*60,running=active.filter(a=>a.tr.R===R).length;
     if(!running){el.innerHTML=`<span class="dot off"></span>Closed · first ${hm(first)}`;return;}
-    const hw=E.headway(R.color,mm,day);el.innerHTML=`<span class="dot"></span>${running} trains · every ${hw.short?hw.h/2+"–"+hw.h:hw.h} min`;});
+    const hw=E.headway(R.color,mm,day);el.innerHTML=`<span class="dot"></span>${running} trains · every ${hw.h} min`;});
 }
 
 /* ---------- stations pane + planner ---------- */
@@ -362,7 +362,7 @@ function renderCard(){
   }else if(selTrip){const tr=selTrip,R=tr.R,tp=trainPos(tr);
     if(!tp){card.innerHTML=`${xBtn}<h2>Trip finished</h2><p class="note" style="padding:0">This train reached ${esc(R.stops[tr.i1].f.name)}.</p>`;}
     else{const st=tp.st,dest=R.stops[tr.i1].f.name,nxt=R.stops[st.next],eta=st.at>=0&&st.at!==tr.i1?E.depAtStop(tr,st.at):E.timeAtStop(tr,st.next);
-      card.innerHTML=`${xBtn}<h2>To ${esc(dest)}</h2><div class="chips"><span class="chip" style="--c:var(--${R.color})"><i></i>${R.name}</span>${tr.kind==="short"?`<span class="chip" style="--c:var(--ink-2)">Short-turn</span>`:""}</div>
+      card.innerHTML=`${xBtn}<h2>To ${esc(dest)}</h2><div class="chips"><span class="chip" style="--c:var(--${R.color})"><i></i>${R.name}</span></div>
       <div class="tiles"><div class="tile"><span class="eyebrow">Speed</span><b>${Math.round(st.v*3.6)} km/h</b></div><div class="tile"><span class="eyebrow">${st.at>=0?"At platform":"Next stop"}</span><b>${esc(st.at>=0?R.stops[st.at].f.name:nxt.f.name)}</b></div>
       <div class="tile"><span class="eyebrow">${st.at>=0?"Departs":"Arrives"}</span><b>${hm(eta,st.at>=0)}</b></div><div class="tile"><span class="eyebrow">Level</span><b>${tp.p.h<-1?"Tunnel":"Viaduct"} ${Math.abs(Math.round(tp.p.h))} m</b></div></div>
       <div class="acts" style="grid-template-columns:1.3fr 1fr"><button class="btn primary" id="cride">Ride this train</button><button class="btn" id="cfol" aria-pressed="${follow}">${follow?"Following":"Follow"}</button></div>`;
@@ -424,7 +424,7 @@ function updateClockUI(){
   if(!n){const today=Math.min(...["purple","green","yellow"].map(c=>E.TT[c].first[day]*60));
     const first=clock.sec<today?today:Math.min(...["purple","green","yellow"].map(c=>E.TT[c].first[E.dayType((clock.dow+1)%7)]*60));
     $("#svc").innerHTML=`<b>Service closed.</b> First trains leave terminals at ${hm(first)}.`;}
-  else $("#svc").innerHTML=`<b>${n} trains running</b> · ${hw.band.toLowerCase()} pattern${hw.short?". Purple and Green cores every 5 min, ends every 10.":"."}`;
+  else $("#svc").innerHTML=`<b>${n} trains running</b> · ${hw.band.toLowerCase()} pattern, every train runs end to end.`;
 }
 
 /* ---------- light, weather ---------- */
@@ -453,7 +453,7 @@ function updateRain(dt){if(!rainLines.visible)return;const k=weather==="storm"?2
 $("#tsz").oninput=e=>{trainScale=+e.target.value;$("#tszv").textContent=trainScale+"×";wideU.value=-1;};
 const tog=(id,get,set)=>{$(id).onclick=e=>{set(!get());e.currentTarget.setAttribute("aria-pressed",get());e.currentTarget.textContent=get()?"On":"Off";};};
 let showLabels=true;
-tog("#lblbtn",()=>showLabels,v=>{showLabels=v;["st-labels"].forEach(l=>map.getLayer(l)&&map.setLayoutProperty(l,"visibility",v?"visible":"none"));});
+tog("#lblbtn",()=>showLabels,v=>{showLabels=v;boardsOn=v;boardT=0;["st-labels"].forEach(l=>map.getLayer(l)&&map.setLayoutProperty(l,"visibility",v?"visible":"none"));});
 let voice=true;tog("#voicebtn",()=>voice,v=>{voice=v;if(!v)try{speechSynthesis.cancel();}catch(e){}});
 function applyBase(){if(satellite)return;try{map.setConfig("basemap",baseConfig(presetFor()));}catch(e){}curPreset=presetFor();applyWeather();}
 const pressGroup=(sel,val,attr)=>$$(sel).forEach(b=>b.setAttribute("aria-pressed",b.dataset[attr]===val));
@@ -556,14 +556,14 @@ function updateRide(){
 
 /* tour */
 const TOUR=[
-  ["Majestic (Nadaprabhu Kempegowda)","Purple and Green lines cross underground at the network's busiest interchange."],
+  ["Nadaprabhu Kempegowda Station, Majestic","Purple and Green lines cross underground at the network's busiest interchange."],
   ["Cubbon Park","The Purple Line runs in tunnel beneath the park and the Vidhana Soudha."],
   ["Mahatma Gandhi Road","The Purple Line climbs out of the tunnel onto the viaduct along MG Road."],
   ["Indiranagar","Elevated Purple Line station in Indiranagar."],
-  ["Whitefield","Eastern terminus of the Purple Line, beside the ITPL tech parks."],
+  ["Whitefield (Kadugodi)","Eastern terminus of the Purple Line, beside the ITPL tech parks."],
   ["Central Silk Board","The Yellow Line passes the Silk Board junction; a future Blue Line interchange."],
-  ["Electronic City-I","The Yellow Line serves the Electronic City tech hub."],
-  ["RV Road","The Green Line meets the Yellow Line to Bommasandra."],
+  ["Electronic City","The Yellow Line serves the Electronic City tech hub."],
+  ["Rashtreeya Vidyalaya Road","The Green Line meets the Yellow Line to Delta Electronics Bommasandra."],
   ["Yeshwanthpur","Green Line stop beside Yeshwanthpur railway station."],
 ];
 let tourI=-1,tourTimer=0;
@@ -667,8 +667,46 @@ function updateHud(){
   const b=mode==="fly"?fly.yaw:mode==="ride"&&ride?ride.yawS||0:map.getBearing();$("#needle").style.transform=`rotate(${(-b).toFixed(1)}deg)`;
 }
 
+
+/* ---------- station boards: next train per direction, floating above each station when zoomed in ---------- */
+const boardsEl=$("#boards");
+const shortName=n=>n.includes(",")?n.split(",").pop().trim():n.replace(/ \(.*\)/,"");
+const boardOrder=stations.slice().sort((a,b)=>(b.ix-a.ix)||(b.terminal-a.terminal));
+stations.forEach(f=>{const d=document.createElement("button");d.className="board";d.hidden=true;d.onclick=()=>selectStation(f);boardsEl.appendChild(d);f.board=d;f.bw=0;f.bh=0;});
+let boardsOn=true;
+function boardHTML(f){
+  const day=dayKey(),rows=[];
+  f.routes.forEach(st=>{const R=st.route;
+    if(R.status!=="open"){rows.push(`<span class="br" style="--c:var(--${R.color})"><i></i><span>${R.color==="pink"?"Opening soon":"Under construction"}</span><b></b></span>`);return;}
+    const d=E.departures(st,day,clock.sec,1);
+    [0,1].forEach(dir=>{if((dir===0&&st.idx===R.stops.length-1)||(dir===1&&st.idx===0))return;
+      const dest=shortName(R.stops[dir?0:R.stops.length-1].f.name),nx=d.next[dir][0];
+      let t="—",cls="";if(nx){const m=Math.floor((nx.t-clock.sec)/60);t=m<1?"Now":m+" min";cls=m<1?"now":m<4?"soon":"";}
+      rows.push(`<span class="br" style="--c:var(--${R.color})"><i></i><span>${esc(dest)}</span><b class="${cls}">${t}</b></span>`);});});
+  return `<span class="bn">${esc(f.name)}</span>${rows.join("")}`;
+}
+function refreshBoards(){
+  const show=boardsOn&&mode!=="ride"&&map.getZoom()>=14.3;
+  stations.forEach(f=>{if(!show||!f.routes.some(shown)){f.boardLive=false;return;}
+    const s=map.project([f.lon,f.lat]);f.boardLive=s.x>-150&&s.y>-150&&s.x<innerWidth+150&&s.y<innerHeight+150;
+    if(f.boardLive){const h=boardHTML(f);if(h!==f.boardHTMLc){f.board.innerHTML=h;f.boardHTMLc=h;f.bw=0;}}});
+}
+function placeBoards(){
+  const placed=[],cx=innerWidth/2,cy=innerHeight/2;
+  const order=boardOrder.filter(f=>f.boardLive).sort((a,b)=>(b===selected)-(a===selected)||(b.ix-a.ix)||0);
+  let n=0;
+  for(const f of boardOrder){if(!f.boardLive&&!f.board.hidden)f.board.hidden=true;}
+  for(const f of order){
+    const s=map.project([f.lon,f.lat]);
+    if(!f.bw){f.board.hidden=false;f.bw=f.board.offsetWidth;f.bh=f.board.offsetHeight;}
+    const x=s.x-f.bw/2,y=s.y-f.bh-26,r=[x,y,x+f.bw,y+f.bh];
+    if(n>=22||(f!==selected&&placed.some(q=>r[0]<q[2]+4&&r[2]+4>q[0]&&r[1]<q[3]+4&&r[3]+4>q[1]))){f.board.hidden=true;continue;}
+    placed.push(r);n++;f.board.hidden=false;f.board.classList.toggle("sel",f===selected);f.board.style.transform=`translate(${x|0}px,${y|0}px)`;
+  }
+}
+
 /* ---------- per-frame tick (driven by the map's render loop) ---------- */
-let slow=0,cardT=0,frames=0,fpsT=performance.now(),crowdT=0;
+let slow=0,cardT=0,boardT=0,frames=0,fpsT=performance.now(),crowdT=0;
 function tick(dt,now){
   frames++;
   if(clock.live)syncLive();else{clock.sec+=dt*clock.speed;if(clock.sec>=27*3600){clock.sec-=86400;clock.dow=(clock.dow+1)%7;}if(clock.sec<3*3600){clock.sec+=86400;clock.dow=(clock.dow+6)%7;}}
@@ -681,6 +719,8 @@ function tick(dt,now){
   if(wideU.value<=0||Math.abs(w-wideU.value)/wideU.value>.04){wideU.value=w;lenK=mode==="ride"?1:Math.min(2,Math.max(1,wz/5));placeStatic();}
   crowdM.visible=showCrowds&&map.getZoom()>14.5;
   updateRain(dt);
+  placeBoards();
+  if(now-boardT>1000){boardT=now;refreshBoards();}
   if(now-slow>250){slow=now;updateHud();updateClockUI();lineStatus();updateLight();drawMini();}
   if(now-crowdT>3000){crowdT=now;if(Math.abs(demand()-crowdLevel)>.01)placeCrowds();}
   if(now-cardT>(selTrip?500:5000)){cardT=now;if(selected||selTrip)renderCard();}

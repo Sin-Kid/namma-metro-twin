@@ -7,11 +7,11 @@ function MetroEngine(DATA){
 
   const META={
     purple:{name:"Purple Line",code:"Line 1",status:"open",elev:12,depth:16,
-      term:["Challaghatta","Whitefield"],short:["Mysuru Road","Garudacharpalya"]},
+      term:["Challaghatta","Whitefield (Kadugodi)"]},
     green:{name:"Green Line",code:"Line 2",status:"open",elev:14,depth:22,
-      term:["Madavara (BIEC)","Silk Institute"],short:["Nagasandra","Yelachenahalli"]},
-    yellow:{name:"Yellow Line",code:"Line 3",status:"open",elev:18,depth:18,term:["RV Road","Bommasandra"]},
-    pink:{name:"Pink Line",code:"Line 4",status:"building",elev:15,depth:19,term:["Kalena Agrahara (Gottigere)","Nagawara"],
+      term:["Madavara","Silk Institute"]},
+    yellow:{name:"Yellow Line",code:"Line 3",status:"open",elev:18,depth:18,term:["Rashtreeya Vidyalaya Road","Delta Electronics Bommasandra"]},
+    pink:{name:"Pink Line",code:"Line 4",status:"building",elev:15,depth:19,term:["Kalena Agrahara","Nagawara"],
       note:"Elevated Kalena Agrahara–Tavarekere stretch has safety clearance and awaits inauguration. Underground section still under construction."},
     blue:{name:"Blue Line",code:"Line 5",status:"building",elev:16,depth:16,term:["Central Silk Board","KIAL Airport"],
       note:"Under construction. Airport-side stations are not in the source data."},
@@ -70,7 +70,6 @@ function MetroEngine(DATA){
     R.arr=[a0,a1];R.dep=[d0,d1];R.endToEnd=a0[n-1];
     const find=name=>S.findIndex(s=>s.f.name===name);
     R.termIdx=[0,n-1];
-    if(R.short)R.shortIdx=R.short.map(find);
   });
 
   /* ---- timetable ----
@@ -88,7 +87,7 @@ function MetroEngine(DATA){
     if(day==="sun")return {h:Y?12:10,band:"Sunday"};
     if(m<420)return {h:15,band:"Early morning"};
     if(m<480)return {h:10,band:"Morning"};
-    if(inPeak(m))return Y?{h:wkday?8:10,band:"Peak"}:{h:wkday?10:8,band:"Peak",short:wkday};
+    if(inPeak(m))return {h:Y?(wkday?8:10):(wkday?7:8),band:"Peak"};
     if(m<1020)return {h:Y?11:9,band:"Off-peak"};
     if(m<1320)return {h:Y?12:10,band:"Evening"};
     return {h:15,band:"Late night"};
@@ -105,12 +104,6 @@ function MetroEngine(DATA){
         for(let t=first;t<=last;){
           const hw=headway(R.color,t/60,day);
           trips.push({R,dir,i0,i1,t0:t,kind:"through"});
-          if(hw.short&&R.shortIdx&&R.shortIdx.every(i=>i>=0)){
-            // short-turn train slots in halfway between through trains on the busy core
-            const sA=R.shortIdx[dir],sB=R.shortIdx[1-dir];
-            const pass=t+R.arr[dir][sA]-R.dep[dir][i0];
-            trips.push({R,dir,i0:sA,i1:sB,t0:pass+(R.dep[dir][sA]-R.arr[dir][sA])+hw.h*30,kind:"short"});
-          }
           const nx=t+hw.h*60;
           t=(nx>last&&t<last)?last:nx;   // always run the published last train
         }
@@ -123,8 +116,11 @@ function MetroEngine(DATA){
   const tripsFor=day=>dayCache[day]||(dayCache[day]=buildDay(day));
 
   /* state of a trip at service-day second t */
+  const LAY_BEFORE=150,LAY_AFTER=90;   // seconds a train stands at the terminus platform before departing / after arriving
   function tripState(tr,t){
-    const tau=t-tr.t0;if(tau<0||tau>tr.dur)return null;
+    const tau=t-tr.t0;
+    if(tau<0){if(tau<-LAY_BEFORE)return null;return {ch:tr.R.stops[tr.i0].ch,v:0,at:tr.i0,next:tr.i0+(tr.dir?-1:1),layover:"departing"};}
+    if(tau>tr.dur){if(tau>tr.dur+LAY_AFTER)return null;return {ch:tr.R.stops[tr.i1].ch,v:0,at:tr.i1,next:tr.i1,layover:"arrived"};}
     const R=tr.R,A=R.arr[tr.dir],D=R.dep[tr.dir],T=tau+tr.base,step=tr.dir?-1:1;
     for(let i=tr.i0;i!==tr.i1;i+=step){
       if(T<=D[i]&&i!==tr.i0)return {ch:R.stops[i].ch,v:0,at:i,next:i};
