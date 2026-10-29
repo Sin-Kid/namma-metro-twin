@@ -26,19 +26,24 @@ const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Q2=new THREE.Quaternion(),V
 mapboxgl.accessToken=window.MAPBOX_TOKEN||"";
 if(!mapboxgl.accessToken){$("#load").textContent="No Mapbox token configured. Set MAPBOX_TOKEN in .env (local) or in Netlify environment variables.";return;}
 const HOME={center:[77.605,12.965],zoom:11.3,pitch:58,bearing:-18};
-/* basemap palettes: "natural" recolours Mapbox Standard in soft, earthy Bengaluru tones; "classic" keeps Mapbox defaults */
-const VIVID={colorLand:"#f2eee6",colorWater:"#a8c8d8",colorGreenspace:"#c3d6ad",colorBuildings:"#e6dccd",colorCommercial:"#efe6dc",colorEducation:"#ece6cf",
-  colorMedical:"#ecdedb",colorIndustrial:"#e3e1e4",colorMotorways:"#efd3a0",colorTrunks:"#f3e2c2",colorRoads:"#ffffff",show3dTrees:true,show3dLandmarks:true,show3dFacades:true,show3dBuildings:false};
-/* building colours: low and mid-rise pick one of eight stone, plaster and terracotta shades; towers fade to glass blue-grey with height */
-const BLDG=["#eee6da","#e6d8c4","#d9c7ae","#e8dccb","#d8cdbf","#e3c9b4","#cfc6ba","#ebe2d3"];
-let palette="vivid",satellite=false,xray=false;
-function syncBuildings(){try{map.getLayer("color-bldg")&&map.setLayoutProperty("color-bldg","visibility",palette==="vivid"&&!satellite&&!xray?"visible":"none");}catch(e){}}
-const baseConfig=preset=>({lightPreset:preset,showPointOfInterestLabels:false,showTransitLabels:false,...(palette==="vivid"?VIVID:{})});
-/* sky colours per light preset (used when the weather is clear) */
-const SKY={dawn:{color:"#f1dcc8","high-color":"#a7b4d0","horizon-blend":.1,"space-color":"#4a5878","star-intensity":.05},
-  day:{color:"#f3ece2","high-color":"#9fbcd6","horizon-blend":.08,"space-color":"#5d7a99","star-intensity":0},
-  dusk:{color:"#e9c2a6","high-color":"#7f86a8","horizon-blend":.12,"space-color":"#2f3350","star-intensity":.15},
-  night:{color:"#2b3142","high-color":"#151a28","horizon-blend":.1,"space-color":"#0a0d16","star-intensity":.45}};
+/* basemap look, as in Mapbox's Standard style demo: lighting presets, colour themes and label toggles.
+   Default, Faded and Mono are built into the style; Warm, Ocean and Vivid are colour-grading tables (LUTs) made here. */
+let theme="warm",showPlaces=true,showPOI=false,satellite=false,xray=false;
+const GRADES={
+  warm:(r,g,b)=>{const l=.3*r+.59*g+.11*b;return [l+(r-l)*1.05+.045,l+(g-l)+.012,l+(b-l)*.85-.035];},
+  ocean:(r,g,b)=>{const l=.3*r+.59*g+.11*b;return [l+(r-l)*.9-.03,l+(g-l)*.98+.01,l+(b-l)*1.1+.05];},
+  vivid:(r,g,b)=>{const l=.3*r+.59*g+.11*b,k=1.38,c=v=>(v-.5)*1.06+.5;return [c(l+(r-l)*k),c(l+(g-l)*k),c(l+(b-l)*k)];}};
+const lutCache={};
+function lutData(name){
+  if(lutCache[name])return lutCache[name];
+  const N=32,cv=document.createElement("canvas");cv.width=N*N;cv.height=N;const g=cv.getContext("2d"),im=g.createImageData(N*N,N),f=GRADES[name];
+  for(let b=0;b<N;b++)for(let gg=0;gg<N;gg++)for(let r=0;r<N;r++){const o=f(r/(N-1),gg/(N-1),b/(N-1)),i=(gg*N*N+b*N+r)*4;
+    for(let q=0;q<3;q++)im.data[i+q]=Math.round(Math.max(0,Math.min(1,o[q]))*255);im.data[i+3]=255;}
+  g.putImageData(im,0,0);return lutCache[name]=cv.toDataURL("image/png").split(",")[1];
+}
+const baseConfig=preset=>{const c={lightPreset:preset,showPointOfInterestLabels:showPOI,showPlaceLabels:showPlaces,showTransitLabels:false,
+  show3dBuildings:true,show3dFacades:true,show3dTrees:true,show3dLandmarks:true,show3dObjects:!xray};
+  if(GRADES[theme]){c.theme="custom";c["theme-data"]=lutData(theme);}else c.theme=theme;return c;};
 const map=new mapboxgl.Map({container:"stage",style:"mapbox://styles/mapbox/standard",...HOME,maxPitch:85,antialias:true,attributionControl:false,
   config:{basemap:baseConfig("day")}});
 map.addControl(new mapboxgl.AttributionControl({compact:true}),"bottom-left");
@@ -245,15 +250,6 @@ function addLayers(){
       "line-dasharray":["case",["==",["get","open"],1],["literal",[1,0]],["literal",[2,1.5]]]}});
   /* the metro's three.js layer must come before the building extrusions, or the buildings render flat */
   if(!map.getLayer("metro-3d"))map.addLayer(metroLayer,undefined);
-  if(!map.getSource("streets"))map.addSource("streets",{type:"vector",url:"mapbox://mapbox.mapbox-streets-v8"});
-  if(!map.getLayer("color-bldg"))map.addLayer({id:"color-bldg",type:"fill-extrusion",source:"streets","source-layer":"building",slot:"middle",minzoom:13,
-    filter:["all",["==",["get","extrude"],"true"],["!=",["get","underground"],"true"]],
-    layout:{visibility:palette==="vivid"&&!satellite&&!xray?"visible":"none"},
-    paint:{"fill-extrusion-color":["case",[">=",["get","height"],45],["interpolate",["linear"],["get","height"],45,"#c9d2d9",120,"#a9b8c4"],
-        ["match",["%",["to-number",["id"],0],8],0,BLDG[0],1,BLDG[1],2,BLDG[2],3,BLDG[3],4,BLDG[4],5,BLDG[5],6,BLDG[6],BLDG[7]]],
-      "fill-extrusion-height":["get","height"],"fill-extrusion-base":["get","min_height"],
-      "fill-extrusion-opacity":["interpolate",["linear"],["zoom"],13,0,13.6,.95],"fill-extrusion-vertical-gradient":true,"fill-extrusion-ambient-occlusion-intensity":.5}});
-
   if(!map.getLayer("st-dots"))map.addLayer({id:"st-dots",type:"circle",source:"stations",slot:"top",filter:["==",["get","vis"],1],
     paint:{"circle-radius":["interpolate",["linear"],["zoom"],10,["case",["==",["get","ix"],1],5.5,3.4],15,["case",["==",["get","ix"],1],9,6]],
       "circle-color":["case",["==",["get","ix"],1],"#ffffff",["get","color"]],"circle-stroke-color":["case",["==",["get","ix"],1],"#18202b","#ffffff"],"circle-stroke-width":2.2,
@@ -436,14 +432,14 @@ let lighting="auto",weather="clear",curPreset="";
 function presetFor(){const h=(clock.sec/3600)%24;return lighting!=="auto"?lighting:h<5.6||h>=19.2?"night":h<6.8?"dawn":h<17.6?"day":"dusk";}
 function updateLight(){
   const p=presetFor();if(p!==curPreset&&map.isStyleLoaded()){curPreset=p;try{map.setConfigProperty("basemap","lightPreset",p);}catch(e){}applyWeather();
-    try{map.getLayer("color-bldg")&&map.setPaintProperty("color-bldg","fill-extrusion-emissive-strength",{night:.3,dusk:.12,dawn:.06,day:0}[p]);}catch(e){}}
+}
   const h=(clock.sec/3600)%24,day=p==="night"?0:p==="day"?1:.5,wl={clear:1,haze:.8,rain:.6,storm:.45}[weather];
   sun.intensity=(.25+.7*day)*wl;hemi.intensity=(.45+.4*day)*(.6+.4*wl);
   const night=p==="night"?1:p==="day"?0:.5;roofMat.emissive.set(T.lamp).multiplyScalar(.45*night);carMat.emissive.set(T.lamp).multiplyScalar(.25*night);
 }
 const WX={clear:null,haze:{range:[.6,6],color:"#c9c6bd","horizon-blend":.25},rain:{range:[.4,4],color:"#9aa3ad","horizon-blend":.3},storm:{range:[.2,2.5],color:"#6f7782","horizon-blend":.4}};
 function applyWeather(){
-  try{map.setFog(WX[weather]||(palette==="vivid"?SKY[presetFor()]:null));}catch(e){}
+  try{map.setFog(WX[weather]||null);}catch(e){}
   rainLines.visible=weather==="rain"||weather==="storm";$$("#wx button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.w===weather));
 }
 $$("#wx button").forEach(b=>b.onclick=()=>{weather=b.dataset.w;applyWeather();updateLight();toast(`Weather: <b>${b.textContent}</b>`);});
@@ -459,11 +455,16 @@ const tog=(id,get,set)=>{$(id).onclick=e=>{set(!get());e.currentTarget.setAttrib
 let showLabels=true;
 tog("#lblbtn",()=>showLabels,v=>{showLabels=v;["st-labels"].forEach(l=>map.getLayer(l)&&map.setLayoutProperty(l,"visibility",v?"visible":"none"));});
 let voice=true;tog("#voicebtn",()=>voice,v=>{voice=v;if(!v)try{speechSynthesis.cancel();}catch(e){}});
-$("#satbtn").onclick=e=>{satellite=!satellite;e.currentTarget.setAttribute("aria-pressed",satellite);e.currentTarget.textContent=satellite?"Satellite":"3D city";
-  curPreset="";map.setStyle(satellite?"mapbox://styles/mapbox/standard-satellite":"mapbox://styles/mapbox/standard",{config:{basemap:satellite?{lightPreset:presetFor(),showPointOfInterestLabels:false,showTransitLabels:false}:baseConfig(presetFor())}});};
-$("#palbtn").onclick=e=>{palette=palette==="vivid"?"classic":"vivid";e.currentTarget.textContent=palette==="vivid"?"Natural":"Classic";e.currentTarget.setAttribute("aria-pressed",palette==="vivid");
-  if(!satellite)try{map.setConfig("basemap",baseConfig(presetFor()));if(xray)map.setConfigProperty("basemap","show3dObjects",false);}catch(e){}applyWeather();syncBuildings();curPreset="";toast(`Colours: <b>${palette==="vivid"?"Natural":"Classic"}</b>`);};
-$("#lightsel").onchange=e=>{lighting=e.target.value;updateLight();};
+function applyBase(){if(satellite)return;try{map.setConfig("basemap",baseConfig(presetFor()));}catch(e){}curPreset=presetFor();applyWeather();}
+const pressGroup=(sel,val,attr)=>$$(sel).forEach(b=>b.setAttribute("aria-pressed",b.dataset[attr]===val));
+$$("#lightgrp button").forEach(b=>b.onclick=()=>{lighting=b.dataset.l;pressGroup("#lightgrp button",lighting,"l");curPreset="";updateLight();});
+$$("#themegrp button").forEach(b=>b.onclick=()=>{theme=b.dataset.th;pressGroup("#themegrp button",theme,"th");applyBase();toast(`Colour theme: <b>${b.textContent.trim()}</b>`);});
+const swTog=(id,get,set)=>{$(id).onclick=e=>{set(!get());e.currentTarget.setAttribute("aria-checked",get());};};
+swTog("#sw-sat",()=>satellite,v=>{satellite=v;curPreset="";
+  map.setStyle(satellite?"mapbox://styles/mapbox/standard-satellite":"mapbox://styles/mapbox/standard",{config:{basemap:satellite?{lightPreset:presetFor(),showPointOfInterestLabels:showPOI,showPlaceLabels:showPlaces,showTransitLabels:false}:baseConfig(presetFor())}});
+  $("#themegrp").classList.toggle("off",satellite);});
+swTog("#sw-places",()=>showPlaces,v=>{showPlaces=v;try{map.setConfigProperty("basemap","showPlaceLabels",v);}catch(e){}});
+swTog("#sw-poi",()=>showPOI,v=>{showPOI=v;try{map.setConfigProperty("basemap","showPointOfInterestLabels",v);}catch(e){}});
 $("#tilt").onclick=()=>{setMode("orbit");map.easeTo({pitch:map.getPitch()<5?60:0,duration:reduce?0:800});};
 
 /* ---------- modes ---------- */
@@ -583,7 +584,7 @@ $$(".tool").forEach(b=>b.onclick=()=>{const t=b.dataset.t;
   if(t==="time"||t==="wx"||t==="more")return togglePop(t);
   togglePop(null);
   if(t==="rush"){showCrowds=!showCrowds;b.setAttribute("aria-pressed",showCrowds);placeCrowds();toast(showCrowds?"<b>Platform crowds</b> on · they swell in the 8–11 and 17–20 peaks":"Platform crowds off");}
-  if(t==="xray"){xray=!xray;try{map.setConfigProperty("basemap","show3dObjects",!xray);}catch(e){}syncBuildings();b.setAttribute("aria-pressed",xray);toast(xray?"<b>X-ray</b> · buildings hidden; tunnels under Majestic, Cubbon Park and KR Market stand out":"X-ray off");}
+  if(t==="xray"){xray=!xray;try{map.setConfigProperty("basemap","show3dObjects",!xray);}catch(e){}b.setAttribute("aria-pressed",xray);toast(xray?"<b>X-ray</b> · buildings hidden; tunnels under Majestic, Cubbon Park and KR Market stand out":"X-ray off");}
   if(t==="tour"){mode==="tour"?setMode("orbit"):startTour();}
   if(t==="photo"){document.body.classList.add("photo");toast("Photo view · press <b>Esc</b> to bring the controls back",3000);}
   if(t==="full"){const d=document;try{d.fullscreenElement?d.exitFullscreen():d.documentElement.requestFullscreen().catch(()=>toast("Full screen isn't available here"));}catch(e){toast("Full screen isn't available here");}}
@@ -693,7 +694,7 @@ new MutationObserver(applyTheme).observe(document.documentElement,{attributes:tr
 addEventListener("resize",sizeMini);
 
 applyTheme();placeStatic();setHints();
-map.on("style.load",()=>{curPreset="";addLayers();applyWeather();updateLight();if(!showLabels&&map.getLayer("st-labels"))map.setLayoutProperty("st-labels","visibility","none");if(xray)try{map.setConfigProperty("basemap","show3dObjects",false);}catch(e){}});
+map.on("style.load",()=>{curPreset="";addLayers();applyWeather();updateLight();if(!showLabels&&map.getLayer("st-labels"))map.setLayoutProperty("st-labels","visibility","none");});
 map.on("load",()=>{$("#load")&&$("#load").remove();
   const fromHash=stations.find(s=>s.slug===location.hash.slice(1));if(fromHash)selectStation(fromHash);});
 map.on("error",e=>{const msg=e&&e.error&&e.error.message||"";if(/token|401|403|Unauthorized|Forbidden/i.test(msg)){const l=$("#load");if(l){l.textContent="The Mapbox token was rejected. Check that it's valid and allowed for this site.";}else toast("Mapbox token rejected for this site",6000);}});
