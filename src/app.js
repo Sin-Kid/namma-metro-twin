@@ -26,19 +26,19 @@ const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Q2=new THREE.Quaternion(),V
 mapboxgl.accessToken=window.MAPBOX_TOKEN||"";
 if(!mapboxgl.accessToken){$("#load").textContent="No Mapbox token configured. Set MAPBOX_TOKEN in .env (local) or in Netlify environment variables.";return;}
 const HOME={center:[77.605,12.965],zoom:11.3,pitch:58,bearing:-18};
-/* basemap palettes: "vivid" recolours Mapbox Standard; "classic" keeps Mapbox defaults */
-const VIVID={colorLand:"#fff6ee",colorWater:"#2bb3ff",colorGreenspace:"#3fd27a",colorBuildings:"#ffd7c2",colorCommercial:"#ffd0e4",colorEducation:"#ffe27a",
-  colorMedical:"#ffb3b3",colorIndustrial:"#d4cbff",colorMotorways:"#ff8a3d",colorTrunks:"#ffb43d",colorRoads:"#ffffff",show3dTrees:true,show3dLandmarks:true,show3dFacades:true,show3dBuildings:false};
-/* building colours: low and mid-rise pick one of eight shades per building; towers run indigo → violet → magenta with height */
-const BLDG=["#ffa5b8","#ffc085","#ffe08a","#8fe8c3","#86d3ff","#b9a6ff","#ffb0ec","#aee88a"];
+/* basemap palettes: "natural" recolours Mapbox Standard in soft, earthy Bengaluru tones; "classic" keeps Mapbox defaults */
+const VIVID={colorLand:"#f2eee6",colorWater:"#a8c8d8",colorGreenspace:"#c3d6ad",colorBuildings:"#e6dccd",colorCommercial:"#efe6dc",colorEducation:"#ece6cf",
+  colorMedical:"#ecdedb",colorIndustrial:"#e3e1e4",colorMotorways:"#efd3a0",colorTrunks:"#f3e2c2",colorRoads:"#ffffff",show3dTrees:true,show3dLandmarks:true,show3dFacades:true,show3dBuildings:false};
+/* building colours: low and mid-rise pick one of eight stone, plaster and terracotta shades; towers fade to glass blue-grey with height */
+const BLDG=["#eee6da","#e6d8c4","#d9c7ae","#e8dccb","#d8cdbf","#e3c9b4","#cfc6ba","#ebe2d3"];
 let palette="vivid",satellite=false,xray=false;
 function syncBuildings(){try{map.getLayer("color-bldg")&&map.setLayoutProperty("color-bldg","visibility",palette==="vivid"&&!satellite&&!xray?"visible":"none");}catch(e){}}
 const baseConfig=preset=>({lightPreset:preset,showPointOfInterestLabels:false,showTransitLabels:false,...(palette==="vivid"?VIVID:{})});
 /* sky colours per light preset (used when the weather is clear) */
-const SKY={dawn:{color:"#ffc7a8","high-color":"#8a6bff","horizon-blend":.14,"space-color":"#2a2466","star-intensity":.1},
-  day:{color:"#ffe2cf","high-color":"#4f8dff","horizon-blend":.1,"space-color":"#1c3a8a","star-intensity":0},
-  dusk:{color:"#ff9d7a","high-color":"#6a3fb5","horizon-blend":.16,"space-color":"#24124a","star-intensity":.2},
-  night:{color:"#2a2f5a","high-color":"#0f1440","horizon-blend":.12,"space-color":"#05061a","star-intensity":.6}};
+const SKY={dawn:{color:"#f1dcc8","high-color":"#a7b4d0","horizon-blend":.1,"space-color":"#4a5878","star-intensity":.05},
+  day:{color:"#f3ece2","high-color":"#9fbcd6","horizon-blend":.08,"space-color":"#5d7a99","star-intensity":0},
+  dusk:{color:"#e9c2a6","high-color":"#7f86a8","horizon-blend":.12,"space-color":"#2f3350","star-intensity":.15},
+  night:{color:"#2b3142","high-color":"#151a28","horizon-blend":.1,"space-color":"#0a0d16","star-intensity":.45}};
 const map=new mapboxgl.Map({container:"stage",style:"mapbox://styles/mapbox/standard",...HOME,maxPitch:85,antialias:true,attributionControl:false,
   config:{basemap:baseConfig("day")}});
 map.addControl(new mapboxgl.AttributionControl({compact:true}),"bottom-left");
@@ -86,7 +86,7 @@ function buildDeck(R){
 }
 function colourDecks(){
   const c=new THREE.Color(),line=new THREE.Color(),bed=new THREE.Color(),con=col("concrete"),tun=col("tunnel");
-  decks.forEach(({R,g,part,under})=>{line.set(T[R.color]);bed.copy(line).lerp(col("ballast"),.25);
+  decks.forEach(({R,g,part,under})=>{line.set(T[R.color]);line.lerp(con,.3);bed.copy(col("ballast")).lerp(con,.35);
     if(R.status!=="open"){line.lerp(con,.35);bed.lerp(con,.5);}
     const a=g.attributes.color;
     for(let i=0;i<part.length;i++){if(under[i])c.copy(line).lerp(tun,.3);else c.copy(part[i]===0?line:part[i]===1?con:bed);a.setXYZ(i,c.r,c.g,c.b);}
@@ -170,7 +170,7 @@ function placeStatic(){
 }
 function colourStatic(){
   pierMat.color.set(T.concrete);pierGhost.color.set(T.concrete);concMat.color.set(T.concrete);platMat.color.set(T.silver);ugMat.color.set(T.tunnel);
-  elev.forEach((st,i)=>roofM.setColorAt(i,st.f.ix?col("ink"):C.set(T[st.route.color]).lerp(col("concrete"),st.route.status==="open"?.12:.5)));
+  elev.forEach((st,i)=>roofM.setColorAt(i,st.f.ix?col("ink"):C.set(T[st.route.color]).lerp(col("concrete"),st.route.status==="open"?.5:.65)));
   ug.forEach((st,i)=>ugM.setColorAt(i,C.set(T[st.route.color]).lerp(col("tunnel"),.45)));
   roofM.instanceColor.needsUpdate=true;ugM.instanceColor.needsUpdate=true;crowdM.material.color.set(T.person);rainLines.material.color.set(T.rain);
 }
@@ -237,7 +237,7 @@ function addLayers(){
   const fade=["interpolate",["linear"],["zoom"],13.5,1,16.5,0];
   if(!map.getLayer("route-glow"))map.addLayer({id:"route-glow",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
     paint:{"line-color":["get","color"],"line-width":["interpolate",["linear"],["zoom"],10,14,14,22],"line-blur":["interpolate",["linear"],["zoom"],10,8,14,14],
-      "line-opacity":["interpolate",["linear"],["zoom"],10,.45,13.5,.35,16.5,0]}});
+      "line-opacity":["interpolate",["linear"],["zoom"],10,.22,13.5,.15,16.5,0]}});
   if(!map.getLayer("route-casing"))map.addLayer({id:"route-casing",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
     paint:{"line-color":"#ffffff","line-width":["interpolate",["linear"],["zoom"],10,6.5,14,10],"line-opacity":fade}});
   if(!map.getLayer("route-lines"))map.addLayer({id:"route-lines",type:"line",source:"routes",slot:"middle",layout:{"line-cap":"round","line-join":"round"},
@@ -249,10 +249,10 @@ function addLayers(){
   if(!map.getLayer("color-bldg"))map.addLayer({id:"color-bldg",type:"fill-extrusion",source:"streets","source-layer":"building",slot:"middle",minzoom:13,
     filter:["all",["==",["get","extrude"],"true"],["!=",["get","underground"],"true"]],
     layout:{visibility:palette==="vivid"&&!satellite&&!xray?"visible":"none"},
-    paint:{"fill-extrusion-color":["case",[">=",["get","height"],45],["interpolate",["linear"],["get","height"],45,"#5b6cff",90,"#b04cff",150,"#ff3c8e"],
+    paint:{"fill-extrusion-color":["case",[">=",["get","height"],45],["interpolate",["linear"],["get","height"],45,"#c9d2d9",120,"#a9b8c4"],
         ["match",["%",["to-number",["id"],0],8],0,BLDG[0],1,BLDG[1],2,BLDG[2],3,BLDG[3],4,BLDG[4],5,BLDG[5],6,BLDG[6],BLDG[7]]],
       "fill-extrusion-height":["get","height"],"fill-extrusion-base":["get","min_height"],
-      "fill-extrusion-opacity":["interpolate",["linear"],["zoom"],13,0,13.6,.95],"fill-extrusion-vertical-gradient":true,"fill-extrusion-ambient-occlusion-intensity":.35}});
+      "fill-extrusion-opacity":["interpolate",["linear"],["zoom"],13,0,13.6,.95],"fill-extrusion-vertical-gradient":true,"fill-extrusion-ambient-occlusion-intensity":.5}});
 
   if(!map.getLayer("st-dots"))map.addLayer({id:"st-dots",type:"circle",source:"stations",slot:"top",filter:["==",["get","vis"],1],
     paint:{"circle-radius":["interpolate",["linear"],["zoom"],10,["case",["==",["get","ix"],1],5.5,3.4],15,["case",["==",["get","ix"],1],9,6]],
@@ -436,7 +436,7 @@ let lighting="auto",weather="clear",curPreset="";
 function presetFor(){const h=(clock.sec/3600)%24;return lighting!=="auto"?lighting:h<5.6||h>=19.2?"night":h<6.8?"dawn":h<17.6?"day":"dusk";}
 function updateLight(){
   const p=presetFor();if(p!==curPreset&&map.isStyleLoaded()){curPreset=p;try{map.setConfigProperty("basemap","lightPreset",p);}catch(e){}applyWeather();
-    try{map.getLayer("color-bldg")&&map.setPaintProperty("color-bldg","fill-extrusion-emissive-strength",{night:.55,dusk:.25,dawn:.15,day:0}[p]);}catch(e){}}
+    try{map.getLayer("color-bldg")&&map.setPaintProperty("color-bldg","fill-extrusion-emissive-strength",{night:.3,dusk:.12,dawn:.06,day:0}[p]);}catch(e){}}
   const h=(clock.sec/3600)%24,day=p==="night"?0:p==="day"?1:.5,wl={clear:1,haze:.8,rain:.6,storm:.45}[weather];
   sun.intensity=(.25+.7*day)*wl;hemi.intensity=(.45+.4*day)*(.6+.4*wl);
   const night=p==="night"?1:p==="day"?0:.5;roofMat.emissive.set(T.lamp).multiplyScalar(.45*night);carMat.emissive.set(T.lamp).multiplyScalar(.25*night);
@@ -461,8 +461,8 @@ tog("#lblbtn",()=>showLabels,v=>{showLabels=v;["st-labels"].forEach(l=>map.getLa
 let voice=true;tog("#voicebtn",()=>voice,v=>{voice=v;if(!v)try{speechSynthesis.cancel();}catch(e){}});
 $("#satbtn").onclick=e=>{satellite=!satellite;e.currentTarget.setAttribute("aria-pressed",satellite);e.currentTarget.textContent=satellite?"Satellite":"3D city";
   curPreset="";map.setStyle(satellite?"mapbox://styles/mapbox/standard-satellite":"mapbox://styles/mapbox/standard",{config:{basemap:satellite?{lightPreset:presetFor(),showPointOfInterestLabels:false,showTransitLabels:false}:baseConfig(presetFor())}});};
-$("#palbtn").onclick=e=>{palette=palette==="vivid"?"classic":"vivid";e.currentTarget.textContent=palette==="vivid"?"Vivid":"Classic";e.currentTarget.setAttribute("aria-pressed",palette==="vivid");
-  if(!satellite)try{map.setConfig("basemap",baseConfig(presetFor()));if(xray)map.setConfigProperty("basemap","show3dObjects",false);}catch(e){}applyWeather();syncBuildings();curPreset="";toast(`Colours: <b>${palette==="vivid"?"Vivid":"Classic"}</b>`);};
+$("#palbtn").onclick=e=>{palette=palette==="vivid"?"classic":"vivid";e.currentTarget.textContent=palette==="vivid"?"Natural":"Classic";e.currentTarget.setAttribute("aria-pressed",palette==="vivid");
+  if(!satellite)try{map.setConfig("basemap",baseConfig(presetFor()));if(xray)map.setConfigProperty("basemap","show3dObjects",false);}catch(e){}applyWeather();syncBuildings();curPreset="";toast(`Colours: <b>${palette==="vivid"?"Natural":"Classic"}</b>`);};
 $("#lightsel").onchange=e=>{lighting=e.target.value;updateLight();};
 $("#tilt").onclick=()=>{setMode("orbit");map.easeTo({pitch:map.getPitch()<5?60:0,duration:reduce?0:800});};
 
