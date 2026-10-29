@@ -1,0 +1,13 @@
+{
+  "name": "namma-metro-twin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "3D digital twin of Bengaluru's Namma Metro on a Mapbox city base, with trains running on BMRCL's timetable.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/check.mjs",
+    "start": "npm run build && npx -y serve dist"
+  },
+  "engines": { "node": ">=18" }
+}

@@ -1,0 +1,9 @@
+# local secrets and config
+.env
+.env.*
+!.env.example
+# build output
+dist/
+node_modules/
+.netlify
+.DS_Store
