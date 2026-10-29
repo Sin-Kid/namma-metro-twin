@@ -407,6 +407,16 @@ q.addEventListener("input",search);
 q.addEventListener("keydown",e=>{if(e.key==="Enter"){const b=res.querySelector("button");b&&b.click();}if(e.key==="Escape"){q.value="";search();q.blur();}if(e.key==="ArrowDown"){const b=res.querySelector("button");b&&b.focus();e.preventDefault();}});
 document.addEventListener("click",e=>{if(!e.target.closest(".search"))res.hidden=true;});
 
+/* ---------- about me ---------- */
+const about=$("#about"),aboutBtn=$("#aboutbtn");
+const setAbout=open=>{about.hidden=!open;aboutBtn.setAttribute("aria-expanded",open);};
+aboutBtn.onclick=()=>setAbout(about.hidden);$("#aboutx").onclick=()=>setAbout(false);
+$("#abcopy").onclick=e=>{const b=e.currentTarget,t=$("#abmail").textContent;
+  const sel=()=>{const r=document.createRange();r.selectNodeContents($("#abmail"));const g=getSelection();g.removeAllRanges();g.addRange(r);b.textContent="Selected";};
+  try{(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{b.textContent="Copied";setTimeout(()=>b.textContent="Copy",1800);},sel);}catch(err){sel();}};
+document.addEventListener("pointerdown",e=>{if(!about.hidden&&!e.target.closest("#about,#aboutbtn"))setAbout(false);});
+addEventListener("keydown",e=>{if(e.key==="Escape"&&!about.hidden)setAbout(false);});
+
 /* ---------- popovers ---------- */
 const pops={time:$("#pop-time"),wx:$("#pop-wx"),more:$("#pop-more")};
 function togglePop(k){Object.entries(pops).forEach(([n,el])=>{const on=n===k&&el.hidden;el.hidden=!on;$(`.tool[data-t="${n}"]`).setAttribute("aria-pressed",on);});}
