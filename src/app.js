@@ -231,6 +231,7 @@ const layerMatrix=new THREE.Matrix4().makeTranslation(O.x,O.y,O.z).scale(new THR
 const metroLayer={id:"metro-3d",type:"custom",renderingMode:"3d",
   onAdd(m,gl){renderer=new THREE.WebGLRenderer({canvas:m.getCanvas(),context:gl,antialias:true});renderer.autoClear=false;},
   render(gl,matrix){
+    if(vr.active)return;   // VR has its own renderer and loop
     const now=performance.now(),dt=Math.min(.1,(now-lastT)/1000);lastT=now;tick(dt,now);
     camera.projectionMatrix=new THREE.Matrix4().fromArray(matrix).multiply(layerMatrix);
     renderer.resetState();renderer.render(scene,camera);map.triggerRepaint();
@@ -488,7 +489,7 @@ $("#tilt").onclick=()=>{setMode("orbit");map.easeTo({pitch:map.getPitch()<5?60:0
 /* ---------- modes ---------- */
 const HINTS={orbit:[["Drag","pan"],["Right-drag","rotate"],["Scroll","zoom"],["R","ride a train"],["T","tour"],["F","fly"]],
   fly:[["W A S D","move"],["Q / E","down / up"],["Shift","boost"],["Drag","look"],["Esc","orbit"]],
-  ride:[["← →","switch train"],["Drag","look around"],["Esc","exit"]],tour:[["T","stop tour"],["Click","stop"]]};
+  ride:[["← →","switch train"],["Drag","look around"],["V","VR view"],["Esc","exit"]],tour:[["T","stop tour"],["Click","stop"]]};
 function setHints(){$("#hints").innerHTML=HINTS[mode].map(([k,t])=>`<span class="hint"><kbd>${k}</kbd>${t}</span>`).join("");}
 const handlers=["dragPan","dragRotate","scrollZoom","keyboard","doubleClickZoom","touchZoomRotate","touchPitch","boxZoom"];
 const setInteractive=on=>handlers.forEach(h=>map[h]&&(on?map[h].enable():map[h].disable()));
@@ -539,6 +540,7 @@ function startRide(tr){
   toast(`Riding the <b>${R.name}</b> to ${esc(R.stops[tr.i1].f.name)}`);
 }
 function endRide(){
+  if(vr.active)vrExit();
   const r=ride;ride=null;$("#ride").hidden=true;try{speechSynthesis.cancel();}catch(e){}
   if(r&&r.pos)map.jumpTo({center:localToLL(r.pos.x,r.pos.z),zoom:16.3,pitch:62,bearing:map.getBearing()});
 }
@@ -555,9 +557,11 @@ function updateRide(){
   if(!ride.pos)ride.pos=eye.clone();else ride.pos.lerp(eye,.35);
   let yaw=Math.atan2(a.X-p.X,-(a.Z-p.Z))*180/Math.PI;
   if(ride.yawS==null)ride.yawS=yaw;let dy=((yaw-ride.yawS+540)%360)-180;ride.yawS+=dy*.12;
-  setFreeCam(ride.pos.x,ride.pos.y,ride.pos.z,ride.yawS+ride.yaw,Math.max(40,Math.min(85,84+ride.pitch)));
+  if(vr.active)vrPlace(ride.pos,ride.yawS,p.h);else setFreeCam(ride.pos.x,ride.pos.y,ride.pos.z,ride.yawS+ride.yaw,Math.max(40,Math.min(85,84+ride.pitch)));
   const nxt=R.stops[st.at>=0&&st.at!==tr.i1?st.at+sg:st.next],here=st.at>=0?R.stops[st.at]:null;
   $("#rspd").innerHTML=`${Math.round(st.v*3.6)}<small> km/h</small>`;
+  ride.info={color:T[R.color],title:`${R.name} to ${shortName(R.stops[tr.i1].f.name)}`,spd:Math.round(st.v*3.6),
+    next:here?`At ${shortName(here.f.name)} · doors open`:`Next: ${shortName(nxt.f.name)} · ${hm(E.timeAtStop(tr,st.next))}`};
   $("#rnext").innerHTML=(here?`At <b>${esc(here.f.name)}</b> · doors open · departs ${hm(E.depAtStop(tr,st.at),true)}`:`<span class="kn" lang="kn">ಮುಂದಿನ ನಿಲ್ದಾಣ</span> · Next: <b>${esc(nxt.f.name)}</b> ${hm(E.timeAtStop(tr,st.next))}`)+(p.h<-1?" · <i>in tunnel</i>":"");
   const up=[];for(let i=st.next+(st.at>=0?sg:0),c=0;c<4&&(sg>0?i<=tr.i1:i>=tr.i1);i+=sg,c++)up.push(`<span>${esc(R.stops[i].f.name.replace(/ \(.*\)/,""))} ${hm(E.timeAtStop(tr,i))}</span>`);
   $("#ridenext").innerHTML=up.join("")||"<span>Final stop</span>";
@@ -571,6 +575,152 @@ function updateRide(){
     ride.lastAt=key;
   }
 }
+
+
+/* ---------- VR ride view ----------
+   Mapbox can't render into a headset or split-screen, so VR uses its own three.js renderer with the same metro scene,
+   a Mapbox satellite image as the ground around the train, and 3D buildings extruded from Mapbox Streets data.
+   WebXR headsets (e.g. Quest browser) get an immersive session; phones get Cardboard-style split-screen stereo
+   that follows the phone's motion; desktops get the same stereo view with drag-to-look. */
+const vr={active:false,kind:null,mono:false,xrOK:false,renderer:null,rig:null,cam:null,stereo:null,ground:null,groundAt:null,bldg:null,bldgAt:null,
+  hudCtx:null,hudTex:null,orient:null,yaw0:null,look:{yaw:0,pitch:0},mapT:0,hudT:0,lastT:0,drag:null};
+const vrGroup=new THREE.Group();vrGroup.visible=false;scene.add(vrGroup);
+if(navigator.xr&&navigator.xr.isSessionSupported)navigator.xr.isSessionSupported("immersive-vr").then(ok=>{vr.xrOK=ok;}).catch(()=>{});
+const VR_SKY={dawn:"#efc6a6",day:"#a9cbe8",dusk:"#d99a7a",night:"#141a2b"};
+function vrInit(){
+  if(vr.renderer)return;
+  const c=document.createElement("canvas");c.id="vrcanvas";$("#vr").prepend(c);
+  const r=new THREE.WebGLRenderer({canvas:c,antialias:true});r.setPixelRatio(Math.min(devicePixelRatio,2));r.xr.enabled=true;r.xr.setReferenceSpaceType("local");
+  vr.renderer=r;
+  vr.rig=new THREE.Group();vr.rig.visible=false;scene.add(vr.rig);
+  vr.cam=new THREE.PerspectiveCamera(80,1,.1,9000);vr.rig.add(vr.cam);
+  vr.stereo=new THREE.StereoCamera();vr.stereo.eyeSep=.064;
+  const hc=document.createElement("canvas");hc.width=1024;hc.height=200;vr.hudCtx=hc.getContext("2d");vr.hudTex=new THREE.CanvasTexture(hc);
+  const hud=new THREE.Mesh(new THREE.PlaneGeometry(1,.195),new THREE.MeshBasicMaterial({map:vr.hudTex,transparent:true,depthTest:false,depthWrite:false}));
+  hud.position.set(0,-.42,-1.25);hud.rotation.x=-.32;hud.renderOrder=999;vr.cam.add(hud);
+  vr.ground=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:0x8a8f86}));vr.ground.rotation.x=-Math.PI/2;vr.ground.position.y=-.3;vrGroup.add(vr.ground);
+  const far=new THREE.Mesh(new THREE.CircleGeometry(9000,48),new THREE.MeshBasicMaterial({color:0x7a8274}));far.rotation.x=-Math.PI/2;far.position.y=-.8;vrGroup.add(far);vr.far=far;
+  r.xr.addEventListener("sessionend",()=>{if(vr.active&&vr.kind==="xr")vrExit();});
+  c.addEventListener("pointerdown",e=>{vr.drag=[e.clientX,e.clientY];c.setPointerCapture(e.pointerId);});
+  c.addEventListener("pointermove",e=>{if(!vr.drag||vr.orient)return;const dx=e.clientX-vr.drag[0],dy=e.clientY-vr.drag[1];vr.drag=[e.clientX,e.clientY];
+    vr.look.yaw-=dx*.005;vr.look.pitch=Math.max(-1.2,Math.min(1.2,vr.look.pitch-dy*.005));});
+  c.addEventListener("pointerup",()=>vr.drag=null);
+}
+function vrGround(X,Z){
+  if(vr.groundAt&&Math.hypot(X-vr.groundAt[0],Z-vr.groundAt[1])<650)return;
+  vr.groundAt=[X,Z];
+  const [lon,lat]=localToLL(X,Z),zoom=15,size=1280/(512*2**zoom)/MS;
+  const url=`https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/${lon.toFixed(5)},${lat.toFixed(5)},${zoom},0/1280x1280@2x?access_token=${mapboxgl.accessToken}&attribution=false&logo=false`;
+  new THREE.TextureLoader().setCrossOrigin("anonymous").load(url,tex=>{
+    tex.anisotropy=Math.min(8,vr.renderer.capabilities.getMaxAnisotropy());
+    const old=vr.ground.material;vr.ground.material=new THREE.MeshBasicMaterial({map:tex});if(old.map)old.map.dispose();old.dispose();
+    vr.ground.scale.set(size,size,1);vr.ground.position.set(X,-.3,Z);
+  },undefined,()=>{vr.groundAt=null;});
+}
+const VR_BLDG=[[.93,.9,.85],[.9,.85,.77],[.85,.78,.68],[.91,.86,.8],[.85,.8,.75],[.89,.79,.71],[.81,.78,.73],[.88,.84,.79]];
+function vrBuildings(X,Z){
+  if(vr.bldgAt&&Math.hypot(X-vr.bldgAt[0],Z-vr.bldgAt[1])<450)return;
+  if(!map.getSource("vr-streets"))return;
+  const fs=map.querySourceFeatures("vr-streets",{sourceLayer:"building"});if(!fs.length)return;
+  vr.bldgAt=[X,Z];
+  const pos=[],col=[],seen=new Set();let n=0;
+  const push=(arr,...v)=>{for(const x of v)arr.push(x);};
+  for(const f of fs){
+    if(n>7000)break;const pr=f.properties||{};if(String(pr.extrude)!=="true"||String(pr.underground)==="true")continue;
+    const polys=f.geometry.type==="Polygon"?[f.geometry.coordinates]:f.geometry.type==="MultiPolygon"?f.geometry.coordinates:[];
+    for(const poly of polys){
+      const ring=poly[0];if(!ring||ring.length<4)continue;
+      const key=f.id+":"+ring[0][0].toFixed(6)+","+ring[0][1].toFixed(6);if(seen.has(key))continue;seen.add(key);
+      const pts=ring.slice(0,-1).map(([lo,la])=>llToLocal(lo,la));
+      if(Math.hypot(pts[0][0]-X,pts[0][1]-Z)>1700)continue;
+      const h=Math.max(3,+pr.height||6),b=+pr.min_height||0,c=VR_BLDG[Math.abs(Number(f.id)||key.length)%VR_BLDG.length],m=pts.length;
+      for(let i=0;i<m;i++){const [ax,az]=pts[i],[bx,bz]=pts[(i+1)%m];
+        push(pos,ax,b,az, bx,b,bz, bx,h,bz, ax,b,az, bx,h,bz, ax,h,az);for(let k=0;k<6;k++)push(col,c[0]*.92,c[1]*.92,c[2]*.92);}
+      let tri=[];try{tri=THREE.ShapeUtils.triangulateShape(pts.map(q=>new THREE.Vector2(q[0],q[1])),[]);}catch(e){}
+      for(const t of tri)for(const k of t){push(pos,pts[k][0],h,pts[k][1]);push(col,c[0],c[1],c[2]);}
+      n++;
+    }
+  }
+  const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.Float32BufferAttribute(pos,3));g.setAttribute("color",new THREE.Float32BufferAttribute(col,3));g.computeVertexNormals();
+  if(vr.bldg){vrGroup.remove(vr.bldg);vr.bldg.geometry.dispose();}
+  vr.bldg=new THREE.Mesh(g,new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide}));vrGroup.add(vr.bldg);
+}
+/* place the viewer in the driver's cab; called from updateRide */
+function vrPlace(pos,yawDeg,h){
+  vr.rig.position.set(pos.x,h+2.4,pos.z);vr.rig.rotation.set(0,-yawDeg*Math.PI/180,0);
+  const now=performance.now();
+  vrGround(pos.x,pos.z);
+  if(now-vr.mapT>2500){vr.mapT=now;map.jumpTo({center:localToLL(pos.x,pos.z),zoom:14.6,pitch:0,bearing:0});vrBuildings(pos.x,pos.z);}
+}
+function vrHud(){
+  const g=vr.hudCtx,i=ride&&ride.info;if(!g||!i)return;
+  g.clearRect(0,0,1024,200);g.fillStyle="rgba(16,23,32,.84)";
+  if(g.roundRect){g.beginPath();g.roundRect(6,6,1012,188,28);g.fill();}else g.fillRect(6,6,1012,188);
+  g.fillStyle=i.color;g.fillRect(30,34,12,132);
+  g.textAlign="left";g.fillStyle="#ffffff";g.font="600 40px 'IBM Plex Sans',sans-serif";g.fillText(i.title,64,84);
+  g.fillStyle="#c9d2dc";g.font="400 32px 'IBM Plex Sans',sans-serif";g.fillText(i.next,64,140);
+  g.textAlign="right";g.fillStyle="#ffffff";g.font="800 70px 'Big Shoulders Display',sans-serif";g.fillText(String(i.spd),990,100);
+  g.fillStyle="#c9d2dc";g.font="500 26px 'IBM Plex Mono',monospace";g.fillText("km/h",990,142);
+  vr.hudTex.needsUpdate=true;
+}
+const qDev=new THREE.Quaternion(),qYaw=new THREE.Quaternion(),qFix=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5)),qScr=new THREE.Quaternion(),eDev=new THREE.Euler(),ZEE=new THREE.Vector3(0,0,1);
+function vrOrient(e){if(e.alpha!=null)vr.orient={a:e.alpha,b:e.beta,g:e.gamma};}
+function vrHead(){
+  if(vr.orient){const d=Math.PI/180,o=vr.orient,ang=((screen.orientation&&screen.orientation.angle)||window.orientation||0)*d;
+    eDev.set(o.b*d,o.a*d,-o.g*d,"YXZ");qDev.setFromEuler(eDev).multiply(qFix).multiply(qScr.setFromAxisAngle(ZEE,-ang));
+    if(vr.yaw0==null)vr.yaw0=new THREE.Euler().setFromQuaternion(qDev,"YXZ").y;
+    vr.cam.quaternion.copy(qYaw.setFromAxisAngle(UP,-vr.yaw0)).multiply(qDev);}
+  else vr.cam.quaternion.setFromEuler(new THREE.Euler(vr.look.pitch,vr.look.yaw,0,"YXZ"));
+}
+function vrFrame(){
+  const now=performance.now(),dt=Math.min(.1,(now-vr.lastT)/1000);vr.lastT=now;
+  tick(dt,now);
+  if(!vr.active)return;
+  if(now-vr.hudT>500){vr.hudT=now;vrHud();}
+  const r=vr.renderer;
+  if(vr.kind==="xr"){r.render(scene,vr.cam);return;}
+  vrHead();
+  const w=innerWidth,h=innerHeight;r.setSize(w,h,false);
+  if(vr.mono){vr.cam.aspect=w/h;vr.cam.updateProjectionMatrix();r.setScissorTest(false);r.setViewport(0,0,w,h);r.render(scene,vr.cam);return;}
+  vr.cam.aspect=w/2/h;vr.cam.updateProjectionMatrix();vr.cam.updateMatrixWorld();vr.stereo.update(vr.cam);
+  r.setScissorTest(true);
+  r.setScissor(0,0,w/2,h);r.setViewport(0,0,w/2,h);r.render(scene,vr.stereo.cameraL);
+  r.setScissor(w/2,0,w/2,h);r.setViewport(w/2,0,w/2,h);r.render(scene,vr.stereo.cameraR);
+  r.setScissorTest(false);
+}
+function vrEnter(){
+  if(mode!=="ride"||!ride){toast("Start a ride first: pick a train and choose <b>Ride</b>.");return;}
+  if(vr.active)return;
+  vrInit();
+  // needs the user's tap: iOS motion permission and the headset session are both requested right here
+  let xrPromise=null;
+  if(vr.xrOK)xrPromise=navigator.xr.requestSession("immersive-vr",{optionalFeatures:["local-floor"]});
+  else{try{if(typeof DeviceOrientationEvent!=="undefined"&&DeviceOrientationEvent.requestPermission)DeviceOrientationEvent.requestPermission().catch(()=>{});}catch(e){}
+    addEventListener("deviceorientation",vrOrient);
+    try{document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen().then(()=>screen.orientation&&screen.orientation.lock&&screen.orientation.lock("landscape").catch(()=>{})).catch(()=>{});}catch(e){}}
+  if(!map.getSource("vr-streets")){map.addSource("vr-streets",{type:"vector",url:"mapbox://mapbox.mapbox-streets-v8"});
+    map.addLayer({id:"vr-bldg",type:"fill",source:"vr-streets","source-layer":"building",minzoom:13,paint:{"fill-opacity":0}});}
+  vr.active=true;vr.kind=vr.xrOK?"xr":"stereo";vr.orient=null;vr.yaw0=null;vr.look={yaw:0,pitch:0};vr.groundAt=null;vr.bldgAt=null;vr.mapT=0;vr.lastT=performance.now();
+  const sky=new THREE.Color(VR_SKY[presetFor()]||VR_SKY.day);scene.background=sky;scene.fog=new THREE.Fog(sky,500,5200);vr.far.material.color.set(presetFor()==="night"?0x1c2230:0x7a8274);
+  vrGroup.visible=true;vr.rig.visible=true;
+  $("#vr").hidden=false;$("#vr").classList.toggle("stereo",vr.kind==="stereo"&&!vr.mono);
+  $("#vrmsg").textContent=vr.kind==="xr"?"Look around in your headset":"Put your phone in a VR viewer, or drag to look around";
+  vr.renderer.setAnimationLoop(vrFrame);
+  if(xrPromise)xrPromise.then(sess=>vr.renderer.xr.setSession(sess)).catch(()=>{vr.kind="stereo";$("#vr").classList.add("stereo");addEventListener("deviceorientation",vrOrient);
+    $("#vrmsg").textContent="Headset not available: showing split-screen VR";});
+}
+function vrExit(){
+  if(!vr.active)return;vr.active=false;
+  const r=vr.renderer;r.setAnimationLoop(null);
+  const sess=r.xr.getSession&&r.xr.getSession();if(sess)sess.end().catch(()=>{});
+  removeEventListener("deviceorientation",vrOrient);
+  try{if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});}catch(e){}
+  $("#vr").hidden=true;vrGroup.visible=false;vr.rig.visible=false;scene.background=null;scene.fog=null;
+  lastT=performance.now();map.triggerRepaint();
+}
+$("#rvr").onclick=vrEnter;$("#vrexit").onclick=vrExit;
+$("#vrmono").onclick=e=>{vr.mono=!vr.mono;e.currentTarget.textContent=vr.mono?"Split screen":"Single view";$("#vr").classList.toggle("stereo",vr.kind==="stereo"&&!vr.mono);};
+$("#vrcenter").onclick=()=>{vr.yaw0=null;vr.look={yaw:0,pitch:0};};
 
 /* tour */
 const TOUR=[
@@ -618,7 +768,8 @@ addEventListener("keydown",e=>{
   if(document.body.classList.contains("photo")){if(k==="escape"||k==="p")document.body.classList.remove("photo");return;}
   if(mode==="fly"&&"wasdqe".includes(k)&&k.length===1){keys.add(k);e.preventDefault();return;}
   if(e.key==="Shift")keys.add("shift");
-  if(k==="escape"){if(mode!=="orbit")setMode("orbit");else togglePop(null);}
+  if(k==="escape"){if(vr.active){vrExit();return;}if(mode!=="orbit")setMode("orbit");else togglePop(null);}
+  else if(k==="v"&&mode==="ride")vr.active?vrExit():vrEnter();
   else if(k==="r")startRide(selTrip||nearestTrain());
   else if(k==="t")mode==="tour"?setMode("orbit"):startTour();
   else if(k==="f")setMode(mode==="fly"?"orbit":"fly");
