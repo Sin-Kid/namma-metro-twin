@@ -385,18 +385,19 @@ function addLayers(){
     {type:"Feature",properties:{k:"edge"},geometry:{type:"LineString",coordinates:AREA.hull}},
     ...AREA.soon.map(c=>({type:"Feature",properties:{k:"soon"},geometry:{type:"Point",coordinates:c}}))]}});
   const vis=areaOnly?"visible":"none";
-  /* outside the metro area: hide 3D landmarks and basemap labels, cover the ground, say "Coming soon" */
+  /* outside the metro area: hide 3D landmarks and basemap labels, cover the ground, say "Coming soon".
+     The cover layers have no slot, so they sit above every basemap layer (road shields included). */
   if(!map.getLayer("area-clip"))try{map.addLayer({id:"area-clip",type:"clip",source:"area",filter:["==",["get","k"],"mask"],
     layout:{"clip-layer-types":["model","symbol"]}});}catch(e){}
-  if(!map.getLayer("area-mask"))map.addLayer({id:"area-mask",type:"fill",source:"area",slot:"top",filter:["==",["get","k"],"mask"],
+  if(!map.getLayer("area-mask"))map.addLayer({id:"area-mask",type:"fill",source:"area",filter:["==",["get","k"],"mask"],
     layout:{visibility:vis},paint:{"fill-color":"#141b27","fill-opacity":.97,"fill-emissive-strength":1}});
-  if(!map.getLayer("area-glow"))map.addLayer({id:"area-glow",type:"line",source:"area",slot:"top",filter:["==",["get","k"],"edge"],
+  if(!map.getLayer("area-glow"))map.addLayer({id:"area-glow",type:"line",source:"area",filter:["==",["get","k"],"edge"],
     layout:{visibility:vis,"line-join":"round"},paint:{"line-color":"#7b3fb5","line-width":["interpolate",["linear"],["zoom"],10,8,15,22],"line-blur":["interpolate",["linear"],["zoom"],10,6,15,16],
       "line-opacity":.55,"line-emissive-strength":1}});
-  if(!map.getLayer("area-edge"))map.addLayer({id:"area-edge",type:"line",source:"area",slot:"top",filter:["==",["get","k"],"edge"],
+  if(!map.getLayer("area-edge"))map.addLayer({id:"area-edge",type:"line",source:"area",filter:["==",["get","k"],"edge"],
     layout:{visibility:vis,"line-join":"round"},paint:{"line-color":"#c99cf0","line-width":["interpolate",["linear"],["zoom"],10,1.6,15,3.2],"line-opacity":.95,"line-emissive-strength":1}});
-  if(!map.getLayer("area-soon"))map.addLayer({id:"area-soon",type:"symbol",source:"area",slot:"top",filter:["==",["get","k"],"soon"],
-    layout:{visibility:vis,"text-field":"COMING SOON","text-font":["DIN Pro Bold","Arial Unicode MS Bold"],"text-size":["interpolate",["linear"],["zoom"],10,13,14,22],
+  if(!map.getLayer("area-soon"))map.addLayer({id:"area-soon",type:"symbol",source:"area",filter:["==",["get","k"],"soon"],
+    layout:{visibility:vis,"text-field":"COMING SOON","text-font":["DIN Pro Medium","Arial Unicode MS Regular"],"text-size":["interpolate",["linear"],["zoom"],10,13,14,22],
       "text-letter-spacing":.25,"text-allow-overlap":true,"text-ignore-placement":true,"text-pitch-alignment":"map","text-rotation-alignment":"viewport"},
     paint:{"text-color":"#8e98a8","text-opacity":.85,"text-emissive-strength":1}});
   if(!map.getSource("routes")){map.addSource("routes",{type:"geojson",data:routeGeo()});map.addSource("stations",{type:"geojson",data:stationGeo()});}
