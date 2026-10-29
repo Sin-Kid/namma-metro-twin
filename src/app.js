@@ -156,7 +156,7 @@ const drops=[];for(let i=0;i<RN;i++)drops.push([rng()*2-1,rng(),rng()*2-1]);
 const MODEL_R=1600;                 // metres from the view centre within which trains use the detailed model
 const trainU={uNight:{value:0}};
 function paintMaterial(isCab){
-  const m=new THREE.MeshStandardMaterial({roughness:.42,metalness:.35,flatShading:true});
+  const m=new THREE.MeshStandardMaterial({roughness:.5,metalness:.05,flatShading:true});
   m.onBeforeCompile=sh=>{
     sh.uniforms.uNight=trainU.uNight;sh.uniforms.uCab={value:isCab?1:0};
     sh.vertexShader="varying vec3 vMP;\nvarying vec3 vMN;\n"+sh.vertexShader.replace("#include <begin_vertex>","#include <begin_vertex>\nvMP=position;vMN=normal;");
