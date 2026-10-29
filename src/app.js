@@ -114,7 +114,8 @@ const ugMat=new THREE.MeshStandardMaterial({roughness:.6,transparent:true,opacit
 const roofM=new THREE.InstancedMesh(box(),roofMat,elev.length),concM=new THREE.InstancedMesh(box(),concMat,elev.length);
 const platM=new THREE.InstancedMesh(box(),platMat,stops.length*2);
 const ugM=new THREE.InstancedMesh(box(),ugMat,ug.length),entM=new THREE.InstancedMesh(box(),concMat,ug.length);
-[roofM,concM,platM,ugM,entM].forEach(m=>{m.frustumCulled=false;twin.add(m);});
+const edgeM=new THREE.InstancedMesh(box(),new THREE.MeshStandardMaterial({color:0xf5c400,roughness:.6,emissive:0x3a2a00}),stops.length*2);
+[roofM,concM,platM,edgeM,ugM,entM].forEach(m=>{m.frustumCulled=false;twin.add(m);});
 
 /* platform crowds */
 const PPS=28;
@@ -144,21 +145,26 @@ const drops=[];for(let i=0;i<RN;i++)drops.push([rng()*2-1,rng(),rng()*2-1]);
 /* ---------- placement ---------- */
 let selected=null,selTrip=null,showCrowds=true,trainScale=3,mode="orbit",active=[];
 const shown=st=>visible[st.route.color];
+/* station geometry, in metres before scaling. Trains run 2.1 m either side of the centreline and are 2.88 m wide,
+   so each side platform starts just past the train's outer edge. Platforms are 160 m long, longer than the 130 m train. */
+const PLAT={len:160,w:4.5,centre:6.05,edgeIn:3.95,top:1.0,roofY:5.2,roofW:18,roofLen:168};
+const stScale=()=>mode==="ride"?1:trainScale;
 function placeStatic(){
-  const w=wideU.value,ws=Math.min(w,7);
+  const w=wideU.value,ts=stScale(),L=lenK*ts;
   pierSets.forEach(({list,c,k})=>{list.forEach((p,i)=>{const on=visible[p.R.color]?1:0;Q.setFromAxisAngle(UP,p.ang);
     M.compose(V.set(p.X,0,p.Z),Q,S.set(w*on,p.top*on||1e-4,w*on));c.setMatrixAt(i,M);
     M.compose(V.set(p.X,p.top,p.Z),Q,S.set(w*on,on||1e-4,w*on));k.setMatrixAt(i,M);});c.instanceMatrix.needsUpdate=k.instanceMatrix.needsUpdate=true;});
-  elev.forEach((st,i)=>{const on=shown(st)?1:0,big=st.f===selected?1.2:1,p=st.p;Q.setFromAxisAngle(UP,st.ang);
-    M.compose(V.set(p.X,st.h+4.6,p.Z),Q,S.set(27*ws*on*big,1.2*on||1e-4,150*lenK*on*big));roofM.setMatrixAt(i,M);
-    M.compose(V.set(p.X,st.h-9.5,p.Z),Q,S.set(23*ws*on,5.5*on||1e-4,110*lenK*on));concM.setMatrixAt(i,M);});
+  elev.forEach((st,i)=>{const on=shown(st)?1:0,big=st.f===selected?1.15:1,p=st.p;Q.setFromAxisAngle(UP,st.ang);
+    M.compose(V.set(p.X,st.h+PLAT.roofY*ts,p.Z),Q,S.set(PLAT.roofW*w*on*big,.6*ts*on||1e-4,PLAT.roofLen*L*on*big));roofM.setMatrixAt(i,M);
+    M.compose(V.set(p.X,st.h-9.5,p.Z),Q,S.set(20*w*on,5.5*on||1e-4,120*L*on));concM.setMatrixAt(i,M);});
   stops.forEach((st,i)=>{const on=shown(st)?1:0,p=st.p;Q.setFromAxisAngle(UP,st.ang);
-    for(const sd of [-1,1]){const lo=(st.under?6.2:6.6)*w*sd;
-      M.compose(V.set(p.X-p.dz*lo,st.h+.75,p.Z+p.dx*lo),Q,S.set(3.2*w*on,.35*on||1e-4,140*lenK*on));platM.setMatrixAt(i*2+(sd>0?1:0),M);}});
-  ug.forEach((st,i)=>{const on=shown(st)?1:0,big=st.f===selected?1.2:1,p=st.p;Q.setFromAxisAngle(UP,st.ang);
-    M.compose(V.set(p.X,st.h-2.5,p.Z),Q,S.set(26*ws*on*big,8.5*on||1e-4,160*lenK*on*big));ugM.setMatrixAt(i,M);
-    M.compose(V.set(p.X-p.dz*24*w,0,p.Z+p.dx*24*w),Q,S.set(9*w*on,4.5*on||1e-4,12*lenK*on));entM.setMatrixAt(i,M);});
-  [roofM,concM,platM,ugM,entM].forEach(m=>m.instanceMatrix.needsUpdate=true);
+    for(const sd of [-1,1]){const j=i*2+(sd>0?1:0),lo=PLAT.centre*w*sd,le=PLAT.edgeIn*w*sd;
+      M.compose(V.set(p.X-p.dz*lo,st.h,p.Z+p.dx*lo),Q,S.set(PLAT.w*w*on,PLAT.top*ts*on||1e-4,PLAT.len*L*on));platM.setMatrixAt(j,M);
+      M.compose(V.set(p.X-p.dz*le,st.h+PLAT.top*ts,p.Z+p.dx*le),Q,S.set(.6*w*on,.06*ts*on||1e-4,PLAT.len*L*on));edgeM.setMatrixAt(j,M);}});
+  ug.forEach((st,i)=>{const on=shown(st)?1:0,big=st.f===selected?1.15:1,p=st.p;Q.setFromAxisAngle(UP,st.ang);
+    M.compose(V.set(p.X,st.h-2.5,p.Z),Q,S.set(20*w*on*big,8.5*on||1e-4,175*L*on*big));ugM.setMatrixAt(i,M);
+    M.compose(V.set(p.X-p.dz*14*w,0,p.Z+p.dx*14*w),Q,S.set(9*w*on,4.5*on||1e-4,12*L*on));entM.setMatrixAt(i,M);});
+  [roofM,concM,platM,edgeM,ugM,entM].forEach(m=>m.instanceMatrix.needsUpdate=true);
   placeCrowds();
 }
 function colourStatic(){
@@ -171,12 +177,12 @@ function demand(){const m=(clock.sec/60)%1440,d=dayKey();if(!active.length)retur
   const v=m<420?.2:m<480?.5:m<660?1:m<1020?.45:m<1200?.95:m<1320?.5:.2;return d==="sun"?v*.6:d==="sat"?v*.8:v;}
 let crowdLevel=-1;
 function placeCrowds(){
-  const dm=showCrowds?demand():0,w=wideU.value,cs=Math.min(w,3);crowdLevel=dm;let k=0;
+  const dm=showCrowds?demand():0,w=wideU.value,ts=stScale(),L=lenK*ts,cs=Math.min(w,3*ts);crowdLevel=dm;let k=0;
   stops.forEach(st=>{const on=shown(st)&&st.route.status==="open",wt=st.f.ix?1:st.f.terminal?.7:.5,p=st.p;
     for(const sd of [-1,1])for(let j=0;j<PPS;j++,k++){const [a,b,c]=crowdSeed[k];
       if(!on||c>dm*wt*1.25){M.compose(V.set(0,-999,0),Q.identity(),S.set(0,0,0));crowdM.setMatrixAt(k,M);continue;}
-      const along=a*65*lenK,lo=((st.under?6.2:6.6)+(b-.5)*2)*w*sd;
-      M.compose(V.set(p.X-p.dz*lo+p.dx*along,st.h+1.1,p.Z+p.dx*lo+p.dz*along),Q.identity(),S.set(cs,cs/Math.max(1,cs*.6),cs));crowdM.setMatrixAt(k,M);}});
+      const along=a*PLAT.len*.45*L,lo=(PLAT.centre+(b-.5)*(PLAT.w-1.2))*w*sd;
+      M.compose(V.set(p.X-p.dz*lo+p.dx*along,st.h+PLAT.top*ts,p.Z+p.dx*lo+p.dz*along),Q.identity(),S.set(cs,cs,cs));crowdM.setMatrixAt(k,M);}});
   crowdM.instanceMatrix.needsUpdate=true;
 }
 
@@ -190,7 +196,7 @@ syncLive();
 /* ---------- trains ---------- */
 const carTrip=new Array(MAXCARS);
 function placeTrains(){
-  const trips=E.tripsFor(dayKey()),t=clock.sec,riding=mode==="ride",w=riding?1:wideU.value,lk=riding?1:lenK,ts=riding?1:trainScale,cs=CAR*lk*ts;let n=0;active=[];
+  const trips=E.tripsFor(dayKey()),t=clock.sec,riding=mode==="ride",w=wideU.value,lk=riding?1:lenK,ts=riding?1:trainScale,cs=CAR*lk*ts;let n=0;active=[];
   const body=col("silver");
   for(const tr of trips){
     if(!visible[tr.R.color])continue;
@@ -200,7 +206,7 @@ function placeTrains(){
       const s=st.ch+sg*(TRAIN*lk*ts/2-(k+.5)*cs),p=at(R,Math.max(0,Math.min(R.len,s))),h2=E.height(R,s+sg*8);
       const tx=sg*p.dx,tz=sg*p.dz,off=2.1*w,slope=(h2-p.h)/8;
       Q.setFromAxisAngle(UP,Math.atan2(tx,tz));Q2.setFromAxisAngle(AX,-Math.atan(slope));Q.multiply(Q2);
-      M.compose(V.set(p.X+tz*off,p.h,p.Z-tx*off),Q,S.set(w*ts,ts,lk*ts));
+      M.compose(V.set(p.X+tz*off,p.h,p.Z-tx*off),Q,S.set(w,ts,lk*ts));
       carM.setMatrixAt(n,M);carM.setColorAt(n,body);bandM.setMatrixAt(n,M);bandM.setColorAt(n,band);carTrip[n]=tr;n++;
     }
   }
@@ -447,7 +453,7 @@ function updateRain(dt){if(!rainLines.visible)return;const k=weather==="storm"?2
   rainGeo.attributes.position.needsUpdate=true;}
 
 /* more */
-$("#tsz").oninput=e=>{trainScale=+e.target.value;$("#tszv").textContent=trainScale+"×";};
+$("#tsz").oninput=e=>{trainScale=+e.target.value;$("#tszv").textContent=trainScale+"×";wideU.value=-1;};
 const tog=(id,get,set)=>{$(id).onclick=e=>{set(!get());e.currentTarget.setAttribute("aria-pressed",get());e.currentTarget.textContent=get()?"On":"Off";};};
 let showLabels=true;
 tog("#lblbtn",()=>showLabels,v=>{showLabels=v;["st-labels"].forEach(l=>map.getLayer(l)&&map.setLayoutProperty(l,"visibility",v?"visible":"none"));});
@@ -669,8 +675,8 @@ function tick(dt,now){
   if(mode==="ride"&&ride)updateRide();
   if(follow&&selTrip&&mode==="orbit"&&!map.isMoving()){const p=trainPos(selTrip);if(p)map.jumpTo({center:p.ll});}
   const fc=map.getFreeCameraOptions().position;camLocal.set((fc.x-O.x)/MS,fc.z/MS,(fc.y-O.y)/MS);
-  const w=mode==="ride"?1:Math.min(14,Math.max(1,2**(15.6-map.getZoom())));
-  if(Math.abs(w-wideU.value)/wideU.value>.04){wideU.value=w;lenK=mode==="ride"?1:Math.min(2,Math.max(1,w/5));placeStatic();}
+  const wz=mode==="ride"?1:Math.min(14,Math.max(1,2**(15.6-map.getZoom()))),w=mode==="ride"?1:wz*trainScale;
+  if(wideU.value<=0||Math.abs(w-wideU.value)/wideU.value>.04){wideU.value=w;lenK=mode==="ride"?1:Math.min(2,Math.max(1,wz/5));placeStatic();}
   crowdM.visible=showCrowds&&map.getZoom()>14.5;
   updateRain(dt);
   if(now-slow>250){slow=now;updateHud();updateClockUI();lineStatus();updateLight();drawMini();}
