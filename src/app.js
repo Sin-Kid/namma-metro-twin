@@ -601,6 +601,21 @@ function vrInit(){
   vr.ground=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:0x8a8f86}));vr.ground.rotation.x=-Math.PI/2;vr.ground.position.y=-.3;vrGroup.add(vr.ground);
   const far=new THREE.Mesh(new THREE.CircleGeometry(9000,48),new THREE.MeshBasicMaterial({color:0x7a8274}));far.rotation.x=-Math.PI/2;far.position.y=-.8;vrGroup.add(far);vr.far=far;
   r.xr.addEventListener("sessionend",()=>{if(vr.active&&vr.kind==="xr")vrExit();});
+  // tunnel tubes along each underground stretch, open where an underground station's hall is
+  const tubeMat=new THREE.MeshLambertMaterial({color:0x6b7178,emissive:0x1d2126,side:THREE.BackSide});
+  const lampMat=new THREE.MeshBasicMaterial({color:0xfff1c9});
+  routes.forEach(R=>{if(R.status!=="open")return;
+    const ugAt=R.stops.filter(st=>st.under).map(st=>st.ch);
+    R.tunnels.forEach(([a,b])=>{
+      let run=[];const flush=()=>{if(run.length>2){const curve=new THREE.CatmullRomCurve3(run);
+        vrGroup.add(new THREE.Mesh(new THREE.TubeGeometry(curve,Math.max(8,run.length*2),4.8,14,false),tubeMat));}run=[];};
+      for(let s2=a;s2<=b;s2+=15){
+        if(ugAt.some(c=>Math.abs(c-s2)<85)){flush();continue;}
+        const p=at(R,s2);run.push(new THREE.Vector3(p.X,p.h+2.4,p.Z));
+        if(Math.round(s2/15)%3===0){const lamp=new THREE.Mesh(new THREE.BoxGeometry(.25,.12,1.6),lampMat);lamp.position.set(p.X,p.h+6.9,p.Z);lamp.rotation.y=Math.atan2(p.dx,p.dz);vrGroup.add(lamp);}
+      }
+      flush();});});
+  ugMat.side=THREE.DoubleSide;
   c.addEventListener("pointerdown",e=>{vr.drag=[e.clientX,e.clientY];c.setPointerCapture(e.pointerId);});
   c.addEventListener("pointermove",e=>{if(!vr.drag||vr.orient)return;const dx=e.clientX-vr.drag[0],dy=e.clientY-vr.drag[1];vr.drag=[e.clientX,e.clientY];
     vr.look.yaw-=dx*.005;vr.look.pitch=Math.max(-1.2,Math.min(1.2,vr.look.pitch-dy*.005));});
@@ -647,7 +662,9 @@ function vrBuildings(X,Z){
 }
 /* place the viewer in the driver's cab; called from updateRide */
 function vrPlace(pos,yawDeg,h){
-  vr.rig.position.set(pos.x,h+2.4,pos.z);vr.rig.rotation.set(0,-yawDeg*Math.PI/180,0);
+  // driver's eye at the windscreen: just ahead of the train's nose, 2.2 m above the rails
+  const yr=yawDeg*Math.PI/180;
+  vr.rig.position.set(pos.x+Math.sin(yr)*3.4,h+2.2,pos.z-Math.cos(yr)*3.4);vr.rig.rotation.set(0,-yr,0);
   const now=performance.now();
   vrGround(pos.x,pos.z);
   if(now-vr.mapT>2500){vr.mapT=now;map.jumpTo({center:localToLL(pos.x,pos.z),zoom:14.6,pitch:0,bearing:0});vrBuildings(pos.x,pos.z);}
