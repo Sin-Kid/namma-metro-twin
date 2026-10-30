@@ -1,5 +1,7 @@
 # Namma Metro Twin
 
+**Live demo: [namma-metro-twin.netlify.app](https://namma-metro-twin.netlify.app)**
+
 A 3D digital twin of Bengaluru's Namma Metro. Mapbox's 3D city is the base map; viaducts, tunnels, stations and 6-car trains are drawn on top with Three.js at exact coordinates. Trains run on BMRCL's published timetable pattern against the real clock (IST).
 
 Features: live train positions from the timetable, station departures, journey planner, cab-view ride mode with next-station announcements, fly mode, cinematic tour, weather, X-ray (hide buildings to see tunnels), platform crowds, day/night lighting that follows the clock, minimap.
