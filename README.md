@@ -4,9 +4,9 @@
 
 ### Video walkthrough (2 min)
 
-[![Namma Metro Twin walkthrough](docs/demo-poster.jpg)](docs/demo.mp4)
+[![Namma Metro Twin walkthrough](docs/demo-poster.jpg)](https://drive.google.com/drive/folders/14JRJC0wEEGxfiZCZx3o45lcoyua4WZqc?usp=drive_link)
 
-Click the image to play [`docs/demo.mp4`](docs/demo.mp4) (1080p, voice-over with subtitles; captions also in [`docs/demo.srt`](docs/demo.srt)).
+**[▶ Watch the video on Google Drive](https://drive.google.com/drive/folders/14JRJC0wEEGxfiZCZx3o45lcoyua4WZqc?usp=drive_link)** (1080p, voice-over with subtitles). A copy is also in the repo: [`docs/demo.mp4`](docs/demo.mp4), captions in [`docs/demo.srt`](docs/demo.srt).
 
 A 3D digital twin of Bengaluru's Namma Metro. Mapbox's 3D city is the base map; viaducts, tunnels, stations and 6-car trains are drawn on top with Three.js at exact coordinates. Trains run on BMRCL's published timetable pattern against the real clock (IST).
 
