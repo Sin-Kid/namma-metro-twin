@@ -1,0 +1,141 @@
+1
+00:00:01,200 --> 00:00:02,867
+This is Namma Metro Twin,
+
+2
+00:00:02,887 --> 00:00:07,657
+a 3D digital twin of Bengaluru's
+metro that runs right in your browser.
+
+3
+00:00:07,677 --> 00:00:09,849
+Here's a quick walkthrough.
+
+4
+00:00:10,399 --> 00:00:12,261
+The map shows the whole network.
+
+5
+00:00:12,281 --> 00:00:15,377
+The Purple, Green and Yellow
+lines are running today.
+
+6
+00:00:15,397 --> 00:00:19,922
+The Pink and Blue lines are still
+being built, so they're drawn dashed.
+
+7
+00:00:20,472 --> 00:00:25,018
+Every train you see is placed
+using BMRCL's published timetable,
+
+8
+00:00:25,038 --> 00:00:27,658
+matched to the current time in India.
+
+9
+00:00:27,678 --> 00:00:33,665
+There's no public live feed, so positions
+come from the schedule, not from GPS.
+
+10
+00:00:34,215 --> 00:00:38,079
+Up close, each train is a six-car
+model painted in its line colour,
+
+11
+00:00:38,099 --> 00:00:42,970
+running on the viaducts and through the
+tunnels at the real station positions.
+
+12
+00:00:43,520 --> 00:00:47,387
+Above each station, a board shows
+the next trains in each direction,
+
+13
+00:00:47,407 --> 00:00:49,758
+and how many minutes away they are.
+
+14
+00:00:50,308 --> 00:00:52,444
+Click a station to see its details.
+
+15
+00:00:52,464 --> 00:00:57,250
+From here you can fly to it, or set
+it as the start or end of a journey.
+
+16
+00:00:57,800 --> 00:01:01,063
+The planner finds the route,
+including any line changes,
+
+17
+00:01:01,083 --> 00:01:04,657
+and times it against the
+actual trips in the timetable.
+
+18
+00:01:05,207 --> 00:01:09,241
+Ride mode puts you in the driver's
+view of a real scheduled trip,
+
+19
+00:01:09,261 --> 00:01:11,237
+with next-station announcements.
+
+20
+00:01:11,257 --> 00:01:14,538
+There's also a VR view
+for headsets and phones.
+
+21
+00:01:15,088 --> 00:01:16,490
+X-ray hides the buildings,
+
+22
+00:01:16,510 --> 00:01:20,579
+so you can see the underground
+sections and where the tunnels start.
+
+23
+00:01:21,129 --> 00:01:25,835
+You can scrub the clock or speed it up,
+and the lighting follows the time of day,
+
+24
+00:01:25,855 --> 00:01:27,118
+from morning to night.
+
+25
+00:01:27,138 --> 00:01:29,180
+You can add haze or rain too.
+
+26
+00:01:29,730 --> 00:01:33,681
+Outside the metro area, the map
+is covered and marked coming soon,
+
+27
+00:01:33,701 --> 00:01:36,096
+so the focus stays on the network.
+
+28
+00:01:36,646 --> 00:01:41,794
+It's built with Mapbox for the
+3D city, three.js for the metro,
+
+29
+00:01:41,814 --> 00:01:45,814
+the open BMRCL timetable
+data, and OpenStreetMap.
+
+30
+00:01:45,834 --> 00:01:48,357
+Credits are in the About panel.
+
+31
+00:01:48,377 --> 00:01:51,844
+Try it at namma-metro-twin.netlify.app
