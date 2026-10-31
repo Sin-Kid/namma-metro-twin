@@ -1088,5 +1088,5 @@ map.on("load",()=>{$("#load")&&$("#load").remove();
   else setTimeout(()=>{if(mode==="orbit"&&!map.isMoving())map.flyTo({...CITY,duration:reduce?0:5200,curve:1.2,essential:true});},700);});
 map.on("error",e=>{const msg=e&&e.error&&e.error.message||"";if(/token|401|403|Unauthorized|Forbidden/i.test(msg)){const l=$("#load");if(l){l.textContent="The Mapbox token was rejected. Check that it's valid and allowed for this site.";}else toast("Mapbox token rejected for this site",6000);}});
 addEventListener("hashchange",()=>{const s=stations.find(s=>s.slug===location.hash.slice(1));if(s&&s!==selected)selectStation(s);});
-window.__twin={map,E,setMode,startRide,nearestTrain,roofMat,platM,edgeM,model,setTrainScale:v=>{trainScale=v;wideU.value=-1;}};
+window.__twin={map,E,clock,stations,selectStation,setMode,startRide,nearestTrain,roofMat,platM,edgeM,model,setTrainScale:v=>{trainScale=v;wideU.value=-1;}};
 })();
